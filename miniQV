@@ -1,0 +1,213 @@
+#!/bin/bash
+set -a	## EXPORT ALL FUNCTIONS TOO
+set -e  ## exit when any command fails
+#########################################################################################################
+
+
+
+#########################################################################################################
+## DEVELOPMENT ACTIVE:
+## STARTED FROM/ORIGINALY COPIED FROM: slurm-miniSR-miniQVpipe.sh
+#########################################################################################################
+
+
+
+#########################################################################################################
+## INITIAL ACTIONS
+#########################################################################################################
+export SCRIPTDIR=$( dirname $0 )
+export UTILS=${SCRIPTDIR}/utils
+export PYSCRIPTS=${UTILS}/miniqvpy
+export PATH=${UTILS}:${PYSCRIPTS}:${PATH}
+export PYTHONPATH=${UTILS}:${PYSCRIPTS}:${PYTHONPATH}
+
+## TO REMOVE
+export PATH=~/software/seqtk/seqtk/:~/software/samtools/localinstall/bin/:~/software/minimap2/minimap2/:${PATH}
+
+
+#########################################################################################################
+## EARLY SOURCE NEEDS 
+#########################################################################################################
+source ${UTILS}/versions.txt
+source ${UTILS}/helper-functions.txt
+source ${UTILS}/defaults.txt
+
+
+#########################################################################################################
+## VERSION CATCH
+#########################################################################################################
+version_check ${@}
+
+#########################################################################################################
+## HELP: CATCH NO ARGS or ERROR WITH FIRST ARG
+#########################################################################################################
+help_catch ${@}
+
+
+##############################################################################
+## GET OPTS
+##############################################################################
+##DATATYPE (sr pacbio nanopore) MAPPER ( minimap2 bowtie2 bwa magic ) BTMODE (e2e local)
+
+export FOFN=""
+export R1=""
+export DATATYPE=sr
+export MAPPER=minimap2
+export BTMODE=e2e
+export BAMMODE=false
+export FOFNMODE=false
+export THREADS=4
+export P=${THREADS}
+export GLOBAL_HET_RATE=0.001	#1/1000
+export HET_RATE_NOT_PROVIDED=true
+export SKIP_N=0                 ## Good sampling is usually found with skipping the first million, and taking the next million. SKIP_N=1000000 ; UPTO_N=1000000
+export UPTO_N=all               ## Use "all" if want all... when gzipped, on caltech cluster, values larger than 10million cause an error in tail cmd in skiptake function.
+export TRIM5=0
+export TRIM3=0
+export SAVESAM=false
+export SAMOUT=""
+export FORCESORT=false
+
+export VERBOSE=false
+export A=false
+export B=false
+export SLURM=false      ## if true, THREADS or P also used for NTASKS
+export TIME=6:00:00    ## SLURM option
+export MEM=6G          ## SLURM option
+
+
+while getopts "a:b:fr:d:m:x:t:H:s:n:ST:M:W:Nv" arg; do
+    case $arg in
+	a) export INPUT=${OPTARG} ; export BAMMODE=false ; A=true ;; 		## if it is FOFN, then 2- or 3-columns and need -F flag; autodetects 2- vs 3- ; otherwise this is a asm FASTA
+        b) export INPUT=${OPTARG} ; export BAMMODE=true ; B=true ;; 		## if it is FOFN, then 2- or 3-columns and need -F flag; autodetects 2- vs 3- ; otherwise this is a BAM
+	f) export FOFNMODE=true ;;						## FOFN of ASM FASTAs or BAMs
+	r) export R1=${OPTARG} ; export READS=${R1} ;;				## Reads.fastq(.gz)
+	d) export DATATYPE=${OPTARG} ;;						## (sr pacbio nanopore)
+	m) export MAPPER=${OPTARG} ;;						## ( minimap2 bowtie2 bwa magic )	
+	x) export BTMODE=${OPTARG} ;;						## ( e2e local )
+	t) export THREADS=${OPTARG} ; export P=${THREADS} ;;
+	H) export GLOBAL_HET_RATE=${OPTARG} ; export HET_RATE_NOT_PROVIDED=false ;;
+	s) export SKIP_N=${OPTARG} ;;
+	n) export UPTO_N=${OPTARG} ;;
+	S) export SLURM=true ;;
+	T) export TIME=${OPTARG} ;;
+	M) export MEM=${OPTARG} ;;
+	W) export SAMOUT=${OPTARG} ; SAVESAM=true ;;
+	N) export FORCESORT=true ;; 
+	v) export VERBOSE=true ;;
+        *) help; exit;;
+    esac
+done
+
+
+#####	X) export MAXINS=${OPTARG} ;;
+
+
+#########################################################################################################
+## INTERPRET CMDLINE ARGS TO REJECT ERRORS AND SET VARS
+#########################################################################################################
+if $A && $B ; then echo "Please specify only -a or -b. Exiting..." ; exit ; fi
+if ${FOFNMODE}; then export FOFN=${INPUT} ; fi
+
+#########################################################################################################
+## INTERPRET CMDLINE ARGS TO 
+#########################################################################################################
+
+
+#########################################################################################################
+## INTERPRET CMDLINE ARGS TO MAKE SURE MAPPER PRESENT
+#########################################################################################################
+
+if [ ${MAPPER} == "minimap2" ]; then
+  export MINIMAP2=$( which minimap2 )
+  if [ -z ${MINIMAP2} ] ; then echo "Minimap2 specified, but not found. Put in PATH and try again." ; exit ; fi
+elif [ ${MAPPER} == "bowtie2" ]; then
+  export BT2=$( which bowtie2 )
+  export BUILD=$( which bowite2-build )
+  if [ -z ${BT2} ] || [ -z ${BUILD} ] ; then echo "Bowtie2 specified, but not found. Put in PATH and try again." ; exit ; fi
+elif [ ${MAPPER} == "bwa" ]; then
+  export BWA=$( which bwa )
+  if [ -z ${BWA} ] ; then echo "BWA specified, but not found. Put in PATH and try again." ; exit ; fi
+elif [ ${MAPPER} == "bwa" ]; then
+  export MAGIC=$( which magicblast )
+  export MAGICBUILD=$( which makeblastdb )
+  if [ -z ${MAGIC} ] ; then echo "MagicBlast specified, but not found. Put in PATH and try again." ; exit ; fi
+fi
+
+
+#########################################################################################################
+## INTERPRET CMDLINE ARGS TO SELECT MAPFXN
+#########################################################################################################
+
+select_map_fxn
+
+
+#########################################################################################################
+## INTERPRET CMDLINE ARGS TO CATCH PROBLEMS AND GIVE WARNINGS
+#########################################################################################################
+
+for REQUIRED in seqtk samtools ; do TOOL=$( which ${REQUIRED} ) ; if [ -z ${TOOL} ]; then echo "${REQUIRED} not found. Put it in your PATH and try again." ; exit ; fi ; done
+
+for PROVIDED in samPctIdentity.py stats.py ; do TOOL=$( which ${PROVIDED} ) ; 
+if [ -z ${TOOL} ]; then echo "${PROVIDED} was not found, although it comes packaged with MiniQV in the utils directory. Something is wrong internally. As a user, you should never see this message. My deepest condolences. Have at me with a GitHub issue." ; exit ; fi ; done
+
+for REQOPT in INPUT READS ; do if [ -z ${REQOPT} ]; then echo "${!REQOPT} was not provided. Required options are: -a or -b, and -r. Try again." ; exit ; fi ; done
+
+#for OPT in INPUT READS FOFNMODE DATATYPE MAPPER BTMODE MAPFXN THREADS GLOBAL_HET_RATE SKIP_N UPTO_N SLURM TIME MEM SAVESAM SAMOUT FORCESORT VERBOSE ; do echo -e "${OPT}\t${!OPT}" ; done
+
+ALLVARS="SCRIPTDIR UTILS PYSCRIPTS PATH PYTHONPATH INPUT READS R1 FOFN DATATYPE MAPPER BTMODE MAPFXN BAMMODE FOFNMODE THREADS P GLOBAL_HET_RATE HET_RATE_NOT_PROVIDED SKIP_N UPTO_N SAVESAM SAMOUT FORCESORT VERBOSE SLURM TIME MEM MINIMAP2 BT2 BUILD MAGIC MAGICBUILD"
+for OPT in ${ALLVARS} ; do echo -e "${OPT}\t${!OPT}" ; done
+
+if $HET_RATE_NOT_PROVIDED ; then echo -e "Warning: a heterozygosity rate was not provided. The default of ${GLOBAL_HET_RATE} is being used. Ultimately, this means that you should not use the QVs computed after subtracting errors due to heterozygosity (unless the expected het rate is close to the default used).\n" ; fi
+
+
+
+
+
+
+#########################################################################################################
+## EXECUTE
+#########################################################################################################
+##
+write_and_launch_loop
+
+exit
+if $FOFNMODE ; then 
+  if $BAMMODE ; then 
+    write_and_launch_bam_loop
+  else 
+    write_and_launch_loop
+  fi
+else
+  if $BAMMODE ; then
+    write_and_launch_bam
+  else 
+    write_and_launch
+  fi
+fi 
+
+#########################################################################################################
+## SAVE ALL QC CHECKS FOR PIPELINES
+#########################################################################################################
+## ${RUN} ${@:2}
+
+
+
+
+
+
+
+
+
+#########################################################################################################
+## END
+#########################################################################################################
+
+
+
+
+
+
+
+
+

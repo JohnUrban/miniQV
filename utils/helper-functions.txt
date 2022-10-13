@@ -1,0 +1,1121 @@
+## COPIED FROM: ~/software/workflows/medianReadQV-functions.txt 
+## COPY DATE: 2022-10-11, 442 pm
+
+
+## MOST MAPPERS OUTPUT ALIGNMENTS GROUPED BY READ, ALBEIT NOT SORTED
+## SO SORTING BY NAME MAY BE A COMPLETELY UNNECESSARY STEP
+## FOR CMDLINE VERSION, DEFAULT SHOULD BE TO NOT DO IT (SO LONG AS IT PASSES MOST TESTS FOR GIVEN ALNR) W/ OPT TO ENABLE (FOR NO BENEFIT EXCEPT PERHAPS GETTING IT TO WORK IN SOME EDGE CASE)
+
+
+function help {
+  echo "
+	MiniQV ${miniQV_pipeline_version}
+
+        This produces a variety of alignment-based statistics that can be used to compare a set of assemblies.
+        - Simply use the same read set and MiniQV parameters on each assembly.
+        - Ultimately, the QV aspect of miniQV was designed for high accuracy short reads.
+		- High accuracy contigs or high acc long reads should be fine).
+                - Can technically be used on/for any alignments though: short reads, long reads, contigs, etc.
+                - The same types of outputs will be produced, but interpretations will have to change accordingly.
+                - Although error-prone reads can produce results that can be compared between assemblies, they may not be meaningful in an absolute sense.
+                        - QV values will appear quite low even when correcting for the error-rate.
+                - Designed with single-end reads (or single long reads) in mind.
+                - Paired reads will work fine, but they return joint percent ID (and error rate) estimates based on both reads.
+                        - The number of "split" alignments will be 2 for pairs that both map and don't split.
+	- Nevertheless, the mis-assembly aspects of this pipeline were designed with long reads in mind (although short reads can work too).
+		- Prevalence of mis-assemblies assessed by comparing the prevalence of split alignments among assemblies.
+		- These comparisons are not totally released with version 0.0.1 though.
+
+
+
+	Usage: 
+		$( basename ${0} ) {-a asm.fasta | -b sam/bam } [-f] [-r READS.fastq(.gz)] [other options]
+
+	Example Usage:
+
+        If you have the target FASTA (e.g. an assembly) and a reads file in FASTQ format:
+                $( basename ${0} ) -a /path/to/assembly.fasta -R /path/to/Reads.fastq.gz -s 1000000 -n 1000000 
+
+
+        If you have a FOFN of multiple assemblies and a reads file (see -f notes below for more info on creating FOFN):
+                $( basename ${0} ) -f -a /path/to/assembly.fofn -R /path/to/Reads.fastq.gz -s 1000000 -n 1000000 
+
+
+        If you already have the alignments (any type*) in BAM format (from ANY aligner**):
+                $( basename ${0} ) -b /path/to/alignments.bam
+                *short reads, paired, single-end, long reads, contigs, etc.
+                **Minimap2, BWA, bowtie2, Magic BLAST, STAR, HiSat2, etc
+
+
+        If you already have an FOFN describing multiple BAMs/SAMs :
+                $( basename ${0} ) -f -b /path/to/bams.fofn
+
+
+        If you have an assembly FASTA and reads, and know the heterozygosity rate is 0.0204 (e.g. from GenomeScope2 report):
+                $( basename ${0} ) -a /path/to/assembly.fasta -R /path/to/Reads.fastq.gz -s 1000000 -n 1000000 -H 0.0204
+
+
+        If you have an assembly FASTA and reads, and know the heterozygosity rate is 0.0204, and want to save the SAM records:
+                $( basename ${0} ) -a /path/to/assembly.fasta -R /path/to/Reads.fastq.gz -s 1000000 -n 1000000 -H 0.0204 -W intermediate.sam
+
+
+        If you have an assembly FASTA and reads, and know the heterozygosity rate is 0.0204 (e.g. from GenomeScope2 report), and you are on SLURM:
+                $( basename ${0} ) -a /path/to/assembly.fasta -R /path/to/Reads.fastq.gz -s 1000000 -n 1000000 -H 0.0204 -S -M 10G -T 10:00
+	
+
+        If you already have the alignments in BAM format, but they are position-sorted:
+                $( basename ${0} ) -b /path/to/alignments.bam -N
+
+
+
+	Options:
+	
+	-a	ASM	: Either -a or -b required. Provide /path/to/assembly.fasta OR /path/to/assemblies.fofn with -f to process multiple assemblies. See notes in -f.
+
+	-b	BAM|SAM	: Either -a or -b required. 
+			  Provide /path/to/readsPreAlignedToAssembly.bam[sam] 
+				OR /path/to/bams.fofn with -f to process multiple BAM files. 
+				See notes in -f.
+			  IMPORTANT: For this analysis, reads need to be grouped or sorted by name, not position.
+			     Most read mappers output all SAM/BAM lines for a given read together. 
+				i.e. they are grouped by name (not sorted by name) and the output can be used directly with MiniQV.
+			     If the BAMs are currently sorted by position, then use 'samtools sort -n pos-sorted.bam > name-sorted.bam'
+				You can also use -N in miniQV to force name-sorting.
+	    	             MiniQV allows taking just a sample of the lines from a BAM.
+			     At the moment, sampling is simply taking a block of lines after optionally skipping a block of lines.
+			     When the BAM is directly from the mapper, this block is essentially a random sample,
+				 or at least it tends to give representative results compared to using all reads.
+			     Whether or not that is true when the lines are sorted (by name) remains to be tested (TODO).
+			     If using all the entire BAM file, or the majority of it, none of this matters: it will be representative.
+
+        -f      FOFNMODE: Optional. No argument.
+			  This flag lets miniQV know that the file provided to -a or -b is a special 2-col or 3-col file-of-filenames (FOFN).
+			  Whether it is the 2-col or 3-col version is auto-detected by miniQV.
+			  The 2-col version has columns:
+				1 = prefix or nickname;
+					used to make a sub-directory and as part of filenames for this assembly or bam.
+				2 = absolute path to the asm.fasta or reads.bam file.
+			  The 3-col version has columns:
+			  	1 = group name ; all assemblies/bams with the same group name will be analyzed under that groupname subdirectory.
+				    A use case is if you want to keep assemblies grouped together according to assembler used.
+				    This directory structure is used with helper scripts to give the best assembly for each group (assembler), for example.
+				2 = prefix or nickname; 
+					used to	make a sub-directory within the group subdir and as part of filenames for this assembly or bam.
+				3 = absolute path to the asm.fasta or reads.bam	file.
+
+	-r	READS	: Required with -a. /Path/to/reads.fastq(.gz). 
+			  Paired short reads can be analyzed separately, or concatenated into a single file.
+			  In the latter case, the optimal number of "split reads" reported for a read name is 2 instead of 1. Here, 1 would indicate an orphaned read that had no splits.
+
+	-d	DATATYPE: Possible values are 'sr', 'pacbio', and 'nanopore'. Default = sr (short read, presumably high accuracy).
+
+	-m	MAPPER	: Possible values are 'minimap2', 'bowtie2', 'bwa', and 'magic'. 
+			  Default = minimap2.
+			  MiniQV was designed to be used with Minimap2 for all data types as part of a strategy to very quickly return QV estimates.
+			  This is in part b/c Minimap2 can speedily generate indexes on the fly, and is an ultra fast mapper.
+			  When minimap2 is combined with sampling just 1 million reads (for example), miniQV can generate evaluation results in minutes.
+			  Using bowtie2/bwa will require relatively long assembly indexing steps in -a mode. 
+			  However, if BAMs are already generated, then BAM mode (-b) skips mapping altogether, so it doesn't matter which aligner was used. 
+			  Nevertheless, testing shows highly similar results between mappers. There is not a compelling reason to not use Minimap2, even on short reads
+
+	-x	BTMODE	: Possible values are 'e2e' and 'local'. If using Bowtie2 as a mapper, then this tells it to use end-to-end or local mode.
+			  Default = e2e (end to end mode).			  
+
+	-t	THREADS	: Default = 16.
+
+	-H	HETRATE	: Expected heterozygosity rate.
+			  QV = -log10( error rate )
+			  In aligned reads, the error rate is a sum of the errors from the assembly, the reads, and the natural variation (heterozygosity).
+			  MiniQV attempts to show QVs with the total error rate as well as error rates after subtracting out error due to reads and/or natural variation.
+			  It will show some results over a sweep of possible read error and heterozygosity rates in one output file.
+			  However, for the "cigar-QV" table, it will only use the heterozygosity rate provided here.
+			  Default = 0.001.
+			  To get an expected heterozygosity rate, one method is to use GenomeScope2.
+
+			  Coming soon -- some tools here to run that analysis automatically if needed.
+
+	-s	SKIP	: Skip this number of reads in the beginning of the READS or BAM file.
+                          For FASTQ files from Illumina, skipping at least the first million reads seems to be a best practice.
+			    The error rate in the first million tends to be much higher than the average.
+                          Only consider skipping reads if taken a sample (e.g. 1 million reads) with -n.
+			  If using all of the reads (e.g. >20 million), no worries about skipping the first million.
+			  Default = 0.
+
+	-n	NREADS	: Only analyze the first N reads (after skipping reads if applicable).
+			  With just 1 million reads, results are consistently highly representative of what the results would be when using all of the reads.
+			    If just generating scores to compare assemblies, then the scores only matter relatively to each other anyway.
+			    Thus, using the same block of 1 million reads on all assemblies allows meaningful direct comparisons very quickly.
+			    Nonetheless, as said above, the results tend to be similar to using all reads when:
+				 skipping the first million in a file, 
+				 and then using the second million (-s 1000000 -n 1000000).
+			  Default = 'all'.
+
+	-S	SLURM	: Use to launch SLURM batch scripts (one per assembly in FOFN) instead of processing serially in current env. 
+			  Default = false.
+
+	-T	TIME	: Time limit for SLURM. Default = 12:00:00 .
+
+	-M	MEM	: Mem limit for SLURM. Default = 80G .
+
+	-W	SAVESAM : In -a mode, save the intermediate SAM alignments from the mapping step. 
+			  Default = false (SAM records are just streamed into the next program).
+
+	-N	SORT	: Force name sorting. 
+			  This is only necessary if :
+			  - using a mapper that doesn't output alignments grouped by read name, or 
+			  - working with BAMs that are position sorted.
+
+	-v	VERBOSE	: Default = false.
+
+
+
+	Outputs:
+	- See the *.err.txt and *out.txt files.
+		- PRE.out.txt is a file that describes the alignment of every read. 
+			- This is the output of samPctIdentity.py.
+			- It has the number of splits, matches, mismatches, insertions, deletions, unaligned based.
+				- these are used to create the *.cigar*.txt files.
+			- It has 5 ways of computing percent identity. 
+			- See samPctIdentity.py for more information.
+		- miniQV_PRE.out.txt summarizes a few QV analyses over the entire assembly (see *cigar-QV.txt for even more depth, and contig info).
+			- It shows estimates of error rates in the reads given their base qualities.
+			- It summarizes how many reads aligned and various error sums.
+			- It gives a completeness estimate here based on % of reads that aligned.
+			- It gives various QV estimates, sweeping over an array of possible read error rates and heterozygosity rates:
+				QV Estimates :
+				- *Estimated QV from error rate in alignment blocks.
+				- *Adjusted QV Estimates from error rate in alignment blocks plus unaligned bases (from aligned reads).
+				- Adjusted QV Estimates from error rate in alignment blocks plus unaligned bases (from aligned reads) plus bases from unmapped reads.
+				
+				* found in cigar-QV.txt file too, using provided het rate and estimated read error rate
+
+				Other estimates in this file that may be interesting, but are not the best QV estimates.
+				- Estimated QV from proportion of imperfectly aligned reads as estimate of error rate.
+				- Adjusted QV Estimates using proportion of imperfectly aligned reads as estimate of error rate given unaligned reads as well.
+				- Percent Identity Method from Column 9 - Estimated QV from median error rate in aligned reads.
+				- Percent Identity Method from Column 9 - Adjusted QV Estimates using median error rate in aligned given unaligned as well.
+				- Percent Identity Method from Column 11 - Estimated QV from median error rate in aligned reads.
+				- Percent Identity Method from Column 11 - Adjusted QV Estimates using median error rate in aligned given unaligned as well.
+	- See the *cigar-QV.txt file.
+		- This gives a table of QVs computed from various error rates (e.g. total error;   total error - read error;   total error - read error - hetrate)
+		- It gives these QVs for entire assembly and for each contig.
+	- See the stats files that give statistics on the percent identities of read alignments (min, max, mean, median, quantiles, etc).
+		- these stats are the output of stats.py
+		- miniQV automatically computes stats on columns 9 and 11 of the PRE.out.txt file.
+	- See PRE.read-error.txt 
+		- this information is also found in the miniQV.PRE.out.txt summary.	
+
+
+	Use cases:
+
+	- Created several assemblies ; want some metrics to compare them.
+		- Just need a relative score.
+		- The unadjusted QVs from the total assembly are fine for comparison.
+			- No need to adjust for read error and het rate since those are constant.
+			- Use same reads to analyze all assemblies (so same read error).
+			- Assumes assemblies all have same underlying het rate.
+				- e.g. all assemblies were made from same data set (different assemblers, parameters, polishers, etc).
+				- e.g. all assemblies were made from same individual or population.
+		- The completeness estimate based on % reads aligned can be used as well.
+
+
+	- Have a final assembly, want an estimated QV value for the assembly (Assembly QV) and other absolute metrics.
+		- Here you are looking for an absolute score.
+		- The most conservative QV estimate is assuming 0 read error and 0 variation.
+			- That is the unadjusted QVs.
+		- Theoretically, the closest estimate to the true Assembly QV adjusts for read error and natural variation (heterozygosity).
+			- miniQV attempts to do this by subtracting out :
+				- the expected read error (given base call quality scores), and 
+				- expected heterozygosity rate (e.g. from GenomeScope2 or other previous estimate).
+			- miniQV outputs a maximum QV of 60 for now (1 error per million bases).
+				- So if the QV after adjustment >60, it returns 60.
+				- TODO: allow turning this feature off, or setting a different max.
+		- The completeness estimate can be used as well.
+
+	Citation:
+	- This script was developed to evaluate the quality of various genome assemblies for the fungus gnat, Bradysia coprophila.
+	- It is free to use, further develop, criticize, etc.
+	- Feel free to cite this github repo if you find it helpful in your own research.
+
+
+
+"		
+}
+
+
+#########################################################################################################
+## HELP CATCH FUNCTION
+#########################################################################################################
+
+function help_catch {
+  if [ $# -eq 0 ]; then help ; exit ; fi
+}
+
+
+
+#########################################################################################################
+## VERSION HELP FUNCTION
+#########################################################################################################
+
+function version_check {
+  if [ $# -ge 1 ]; then 
+    if [ $1 == "--version" ]; then
+      echo "
+	miniQV		${miniQV_pipeline_version}
+        "       
+      exit ; 
+    fi ; 
+  fi
+}
+
+
+function if_verbose {
+  if ${VERBOSE} ; then echo -e "${@}" 1>&2 ; fi
+}
+
+function skiptake_default {
+  if [ ${R1: -3} == ".gz" ]; then GZIPPED=true ; else GZIPPED=false ; fi
+
+  SKIP=$( echo ${SKIP_N}*4 | bc )
+  START=$( echo ${SKIP}+1 | bc )
+  NLINES=$( echo ${UPTO_N}*4 | bc )
+  HEADN=$( echo $SKIP+$NLINES | bc )
+
+  if [ ${UPTO_N} == "all" ]; then
+    if_verbose "Skiptake upto all...."
+    if [ ${SKIP_N} -eq 0 ]; then
+      if_verbose "Skiptake skip none...."
+      if ${GZIPPED}; then
+        if_verbose "Skiptake gzipped...."
+        gunzip -c ${R1}
+      else
+        if_verbose "Skiptake not gzipped...."
+        cat ${R1}
+      fi
+    else
+      if_verbose "Skiptake skip some...."
+      #Skip, but take the rest
+      if ${GZIPPED}; then
+        if_verbose "Skiptake gzipped...."
+        gunzip -c ${R1} | tail -n +${START}
+      else
+        if_verbose "Skiptake not gzipped...."
+        tail -n +${START} ${R1}
+      fi
+    fi
+  else
+    if_verbose "Skiptake upto not_all ...."
+    #echo $SKIP $NLINES $HEADN
+    if ${GZIPPED} ; then
+      if_verbose "Skiptake gzipped...."
+      for VAR in R1 HEADN NLINES ; do if_verbose "${VAR}\t${!VAR}" ; done
+      #gunzip -c ${R1} | head -n ${HEADN} | tail -n ${NLINES}
+      gunzip -c ${R1} | head -n ${HEADN} | tail -n +${START}
+    else
+      echo "Skiptake not gzipped...." 1>&2
+      #head -n ${HEADN} $R1 | tail -n ${NLINES} 
+      head -n ${HEADN} $R1 | tail -n +${START}
+    fi
+  fi
+}
+
+function skiptake_bam {
+  START=$( echo ${SKIP_N}+1 | bc )
+  HEADN=$( echo ${SKIP_N}+${UPTO_N} | bc )
+
+  if [ ${UPTO_N} == "all" ]; then
+    if [ ${SKIP_N} -eq 0 ]; then
+      ( samtools view -H ${INPUT} ; samtools view ${INPUT} )
+    else
+      ( samtools view -H ${INPUT} ; samtools view ${INPUT} | tail -n +${START} )
+    fi
+  else
+    #( samtools view -H ${INPUT} ; samtools view ${INPUT} | head -n ${HEADN} | tail -n ${UPTO_N} )
+    ( samtools view -H ${INPUT} ; samtools view ${INPUT} | head -n ${HEADN} | tail -n +${START} )
+  fi
+}
+
+function skiptake {
+  if ${BAMMODE}; then 
+    echo "Skiptake BAM...." 1>&2
+    skiptake_bam
+  else
+    echo "Skiptake Default...." 1>&2
+    skiptake_default
+  fi
+}
+
+function error_estimate {
+  if ${BAMMODE}; then
+    skiptake | samtools fastq - | seqtk fqchk -q 0 - | awk '$1 ~ /^ALL/ {print $8, $9, 10^($8/-10), 10^($9/-10)}'
+  else
+    skiptake | seqtk fqchk -q 0 - | awk '$1 ~ /^ALL/ {print $8, $9, 10^($8/-10), 10^($9/-10)}'
+  fi
+  #skiptake | fastq2faqual.py -f - --qual | paste -sd" " - | tr ">" "\n" | awk '$1!="" {s=0; n=0 ; for(i=3; i<=NF; i++) {s+=10^($i/-10) ; n+=1 } ; print $1"\t"s/n}' | stats.py 
+  #skiptake | fastq2faqual.py -f - --qual | paste -sd" " - | tr ">" "\n" | awk '$1!="" {s=0; n=0 ; for(i=3; i<=NF; i++) {s+=$i ; n+=1 } ; print $1"\t"s/n}' | stats.py 
+}
+
+
+
+
+
+#########################################################################################################
+## MAP FUNCTIONS
+#########################################################################################################
+
+function bowtie2_e2e_vf {
+  ## BT2, P, BT2IDX, SKIP_N, UPTO_N, TRIM5, TRIM3, R1, and ADDITIONAL_PARAMETERS are in ENV
+  ## End to end mode ; very fast ; single read (can just treat pairs as separate files).
+  ## Output is SAM to pipe directly into percentID script...
+  ## Give Bowtie:
+  ##    - specific number of reads to skip in file, default = 0; variable to allow different subsets to be sampled.
+  ##    - specific number of reads to go up to
+  ##    - number of bases to trim from 5' end before aligning, defaul 0
+  ##    - number of bases to trim ffrom the 3' end of read before aligning, default 0
+  ##            - trimming is done by default here to try allow one to try avoiding adapter and seqend issues in estimated assembly QV from median read PI.
+  ##            - max recommended is 10 in most scenarios as short reads will mean lower rate of correct mappings,     
+  ##            - if adapters are a problem, either pre-trim or try this in localmode.
+  ##    - 
+  ## ASSUMES ALL VARIABLES IN ENV
+  ADDITIONAL_PARAMETERS="${@}"
+  ${BT2} -p ${P} --end-to-end --very-fast -q -x ${BT2IDX} --skip ${SKIP_N} --upto ${UPTO_N} --trim5 ${TRIM5} --trim3 ${TRIM3} -U ${R1} ${ADDITIONAL_PARAMETERS} 
+  ###${BT2} -p ${P} --end-to-end --very-sensitive -q -x ${BT2IDX} --skip ${SKIP_N} --upto ${UPTO_N} --trim5 ${TRIM5} --trim3 ${TRIM3} -U ${R1} ${ADDITIONAL_PARAMETERS} 
+}
+
+function bowtie2_local_vf {
+  ## BT2, P, BT2IDX, SKIP_N, UPTO_N, TRIM5, TRIM3, R1, and ADDITIONAL_PARAMETERS are in ENV
+  ## End to end mode ; very fast ; single read (can just treat pairs as separate files).
+  ## Output is SAM to pipe directly into percentID script...
+  ## Give Bowtie:
+  ##    - specific number of reads to skip in file, default = 0; variable to allow different subsets to be sampled.
+  ##    - specific number of reads to go up to
+  ##    - number of bases to trim from 5' end before aligning, defaul 0
+  ##    - number of bases to trim ffrom the 3' end of read before aligning, default 0
+  ##            - trimming is done by default here to try allow one to try avoiding adapter and seqend issues in estimated assembly QV from median read PI.
+  ##            - max recommended is 10 in most scenarios as short reads will mean lower rate of correct mappings,     
+  ##            - if adapters are a problem, either pre-trim or try this in localmode.
+  ##    - 
+  ## ASSUMES ALL VARIABLES IN ENV
+  ADDITIONAL_PARAMETERS="${@}"
+  ${BT2} -p ${P} --local --very-fast-local -q -x ${BT2IDX} --skip ${SKIP_N} --upto ${UPTO_N} --trim5 ${TRIM5} --trim3 ${TRIM3} -U ${R1} ${ADDITIONAL_PARAMETERS} 
+}
+
+
+function bwa_default {
+  skiptake | ${BWA} mem ${BWAIDX} -
+}
+
+function minimap2_sr {
+  ## may need -L tag in future....
+  skiptake | ${MINIMAP2} -a -x sr ${ASM} - 
+}
+
+function minimap2_sr_endbonus {
+  ## may need -L tag in future....
+  skiptake | ${MINIMAP2} -a -x sr --end-bonus 5 ${ASM} - 
+}
+
+function minimap2_nanopore {
+  ## may need -L tag in future....
+  skiptake | ${MINIMAP2} -a -x map-ont ${ASM} - 
+}
+
+function minimap2_pacbio {
+  ## may need -L tag in future....
+  skiptake | ${MINIMAP2} -a -x map-pb ${ASM} - 
+}
+
+function minimap2_nanopore_endbonus {
+  ## may need -L tag in future....
+  skiptake | ${MINIMAP2} -a -x map-ont --end-bonus 5 ${ASM} - 
+}
+
+function minimap2_nanopore_endbonus {
+  ## may need -L tag in future....
+  skiptake | ${MINIMAP2} -a -x map-pb --end-bonus 5 ${ASM} - 
+}
+
+function magicblast_DNA_incl_repeats {
+  ## include repeats / also use DNA with RNA-mapping to transcripts (not genome).
+  skiptake | ${MAGIC} -query - -db ${MAGICIDX} -infmt fastq -num_threads ${P} -limit_lookup F -splice F
+}
+
+function magicblast_DNA_excl_repeats {
+  ## exclude repeats / also use	DNA with RNA-mapping to	transcripts (not genome).
+  skiptake | ${MAGIC} -query - -db ${MAGICIDX} -infmt fastq -num_threads ${P}  -splice F
+}
+
+function magicblast_RNA_incl_repeats {
+  ## include repeats
+  skiptake | ${MAGIC} -query - -db ${MAGICIDX} -infmt fastq -num_threads ${P} -limit_lookup F
+}
+
+function magicblast_RNA_excl_repeats {
+  ## exclude repeats
+  skiptake | ${MAGIC} -query - -db ${MAGICIDX} -infmt fastq -num_threads ${P}
+}
+
+function bam_mode {
+  skiptake
+}
+
+
+#########################################################################################################
+## MAP DECISION FUNCTIONS
+#########################################################################################################
+#DATATYPE (sr pacbio nanopore) MAPPER ( minimap2 bowtie2 bwa magic ) BTMODE (e2e local)
+
+function select_map_fxn {
+  if [ ${DATATYPE} == "sr" ] ; then
+    if [ ${MAPPER} == "minimap2" ] ; then export MAPFXN=minimap2_sr_endbonus ;
+    elif [ ${MAPPER} == "bowtie2" ] ; then
+      if [ ${BTMODE} == "e2e" ]; then export MAPFXN=bowtie2_e2e_vf ; else export MAPFXN=bowtie2_local_vf ; fi
+        #if [ ${BTSENSE} == "vf" ]; then export MAPFXN=
+    elif [ ${MAPPER} == "bwa" ]; then export MAPFXN=bwa_default ;
+    elif [ ${MAPPED} == "magic" ]; then export MAPFXN=magicblast_DNA_incl_repeats ;
+    fi
+  elif [ ${DATATYPE} == "pacbio" ] ; then export MAPFXN=minimap2_pacbio ;
+  elif [ ${DATATYPE} == "nanopore" ] ; then export MAPFXN=minimap2_nanopore ;
+  fi
+  if ${BAMMODE} ; then export MAPFXN=bam_mode; fi
+}
+
+
+
+#########################################################################################################
+## IDENTITY PIPELINE FUNCTIONS
+#########################################################################################################
+function identity {
+  ## Mappers put out alignments grouped as reads already; miimap2 def does this ; sorting by name would only needed if starting from BAM that was sorted by position.
+  ## TODO: make if statement to allow one to force sorting.... no sorting is default.
+  #samtools sort -n -O SAM -@ ${P} | samPctIdentity.py -s - -S
+  if ${FORCESORT}; then
+    samtools sort -n -O SAM -@ ${P} | samPctIdentity.py -s - -S
+  else
+    samPctIdentity.py -s - -S
+  fi
+}
+
+function identity_pipeline {
+   if ${SAVESAM} ; then
+      #SAM=intermediate.sam
+      ${MAPFXN} > ${SAMOUT} ; cat ${SAMOUT} | identity
+   else
+      ${MAPFXN} | identity
+   fi
+   #if ${BAMMODE}; then
+   #   samtools view 
+   #else
+   #  ${MAPFXN} | identity 
+   #fi
+}
+
+function get_stats {
+  F=${1}
+  COL=${2}
+  awk 'NR>1' ${F} | stats.py -k ${COL} -p 1,5,10,25,33,50,66,75,90,95,99
+}
+
+
+
+
+function QV_calculation {
+  ERR=$1 #read error
+  HET=$2 #
+  V=0.000001 # Q60 highest allowed at moment.... 
+  awk -v "ERR=$ERR" -v "HET=$HET" -v "V=0.000001" '{A=1-($2/100)-ERR-HET; if ( A*1.0 <= V*1.0 ){ A=V*1.0 }; B=log(A)/log(10) ; print -10*B}'
+}
+
+
+function QV_calculation_given_total_error {
+  READERR=$1
+  HET=$2
+  awk -v "ERR=$READERR" -v "HET=$HET" -v "V=0.000001" '{A=$1-ERR-HET; if ( A*1.0 <= V*1.0 ){ A=V*1.0 }; B=log(A)/log(10) ; print -10*B}'
+}
+
+
+function get_QV_from_median {
+  F=${1}  # stats file produced by stats.py on column from  samPctIdentity.py output.
+  if [ $# -gt 1 ]; then ERR=$2 ; else ERR=0 ; fi
+  if [ $# -gt 2 ]; then HET=$3 ; else HET=0 ; fi
+  awk '$1 ~ /^Q50/' ${F} | QV_calculation $ERR $HET
+}
+
+function get_QV_from_mean {
+  F=${1}  # stats file produced by stats.py on column from  samPctIdentity.py output.
+  if [ $# -gt 1 ]; then ERR=$2 ; else ERR=0 ; fi
+  if [ $# -gt 2 ]; then HET=$3 ; else HET=0 ; fi
+  awk '$1 ~ /^Mean/ {print $1"\t"$3}' ${F} | QV_calculation $ERR $HET
+}
+
+function get_QV_from_IQR {
+  F=${1}  # stats file produced by stats.py on column from  samPctIdentity.py output.
+  if [ $# -gt 1 ]; then ERR=$2 ; else ERR=0 ; fi
+  if [ $# -gt 2 ]; then HET=$3 ; else HET=0 ; fi
+  A=$( awk '$1 ~ /^Q25/' ${F} | QV_calculation $ERR $HET )
+  B=$( awk '$1 ~ /^Q75/' ${F} | QV_calculation $ERR $HET )
+  echo $A $B
+}
+
+function get_QV_from_Q25 {
+  F=${1}  # stats file produced by stats.py on column from  samPctIdentity.py output.
+  if [ $# -gt 1 ]; then ERR=$2 ; else ERR=0 ; fi
+  if [ $# -gt 2 ]; then HET=$3 ; else HET=0 ; fi
+  awk '$1 ~ /^Q25/' ${F} | QV_calculation $ERR $HET
+}
+
+function get_QV_from_Q33 {
+  F=${1}  # stats file produced by stats.py on column from  samPctIdentity.py output.
+  if [ $# -gt 1 ]; then ERR=$2 ; else ERR=0 ; fi
+  if [ $# -gt 2 ]; then HET=$3 ; else HET=0 ; fi
+  awk '$1 ~ /^Q33/' ${F} | QV_calculation $ERR $HET
+}
+
+function get_QV_from_Q66 {
+  F=${1}  # stats file produced by stats.py on column from  samPctIdentity.py output.
+  if [ $# -gt 1 ]; then ERR=$2 ; else ERR=0 ; fi
+  if [ $# -gt 2 ]; then HET=$3 ; else HET=0 ; fi
+  awk  '$1 ~ /^Q66/' ${F} | QV_calculation $ERR $HET
+}
+
+function get_QV_from_Q75 {
+  F=${1}  # stats file produced by stats.py on column from  samPctIdentity.py output.
+  if [ $# -gt 1 ]; then ERR=$2 ; else ERR=0 ; fi
+  if [ $# -gt 2 ]; then HET=$3 ; else HET=0 ; fi
+  awk  '$1 ~ /^Q75/' ${F} | QV_calculation $ERR $HET
+}
+
+
+function get_n_0_lines {
+  N=${1}
+  for i in $( seq 1 $N ); do echo 0 ; done
+}
+
+
+function get_updated_stats {
+  F=${1}
+  COL=${2}
+  NUNMAPPED=${3}
+  cat <( awk -v "COL=${COL}" 'NR>1 {print $(COL)}' ${F} )  <( get_n_0_lines ${NUNMAPPED} ) | stats.py -k 1 -p 1,5,10,25,33,50,66,75,90,95,99 
+  #stats.py -k 1 -p 1,5,10,25,33,50,66,75,90,95,99 -i tmp
+}
+
+function get_QVs_given_err {
+  STATFILE=${1}
+  FXN=${2}
+  ERR=${3}
+  OUT=""
+  for het in ${@:4} ; do OUT+="$( $FXN $STATFILE ${ERR} $het ) " ; done
+  echo $OUT
+}
+
+function get_QV_output {
+  STATFILE=${1}
+  ERR_RATES=${@:2}
+  #echo "Mean: " $( get_QVs_given_err ${STATFILE} get_QV_from_Q25 ${ERR_RATES} ) #0 0.001 0.005 0.01 ) 
+  #echo "Q25: " $( get_QVs_given_err ${STATFILE} get_QV_from_Q25 ${ERR_RATES} ) #0 0.001 0.005 0.01 ) 
+  #echo "Q33: " $( get_QVs_given_err ${STATFILE} get_QV_from_Q33 ${ERR_RATES} ) #0 0.001 0.005 0.01 ) 
+  echo "QV Est: " $( get_QVs_given_err ${STATFILE} get_QV_from_median ${ERR_EST[3]} ${HET_RATES} ) #0 0.001 0.005 0.01 ) 
+  #echo "Q66: " $( get_QVs_given_err ${STATFILE} get_QV_from_Q66 ${ERR_RATES} ) #0 0.001 0.005 0.01 ) 
+  #echo "Q75: " $( get_QVs_given_err ${STATFILE} get_QV_from_Q75 ${ERR_RATES} ) #0 0.001 0.005 0.01 ) 
+  #echo "IQR: " $( get_QV_from_IQR stats_col9.updated.txt ) $( get_QV_from_IQR stats_col9.updated.txt 0.001 ) $( get_QV_from_IQR stats_col9.updated.txt 0.005 ) $( get_QV_from_IQR stats_col9.updated.txt 0.01 )
+}
+
+function get_QV_output2 {
+  STATFILE=${1}
+  echo -e "ErrorRate\tHetRate\tEstQV"
+  for e in ${ERROR_RATES}; do
+    for het in ${HET_RATES}; do
+      echo -e "${e}\t${het}\t$( get_QV_from_median ${STATFILE} ${e} ${het} )"
+    done
+  done
+}
+
+function get_QV_output3 {
+  ERR_RATE=${1}
+  echo -e "ErrorRate\tHetRate\tEstQV"
+  for e in ${ERROR_RATES}; do
+    for het in ${HET_RATES}; do
+      echo -e "${e}\t${het}\t$( echo ${ERR_RATE} | QV_calculation_given_total_error ${e} ${het} )"
+    done
+  done
+}
+
+function get_QV_by_seq_table_header {
+  #echo -e "ID\taln_err\tunalnadj_err\taln_uncorr\taln_readcorr\taln_readhet_corr\tunalnadj_uncorr\tunalnadj_readcorr\tunalnadj_readhet_corr"
+  echo -e "ID\taln_uncorr_qv\taln_readcorr_qv\taln_readhet_corr_qv\tunalnadj_uncorr_qv\tunalnadj_readcorr_qv\tunalnadj_readhet_corr_qv\taln_err\tunalnadj_err\tsumreadlen\tsumalnlen\tsumadjalnlen\tnreads\tavgreadlen\tavgalnsum\tavgadjalnsum"
+}
+
+function get_QV_by_seq_table {
+  ##ERR_RATE=${1}
+  ##BASES_IN_UNMAPPED_READS=$( echo $UNMAPPED $READLEN | awk '{print $1*$2}' )
+  ##TOTAL_UNMAPPED_BASES=$( echo $BASES_IN_UNMAPPED_READS ${CIGAR[4]} | awk '{print $1+$2}' )
+  ##CIGAR_ERRORS3=$( echo ${CIGAR_ERRORS2} $BASES_IN_UNMAPPED_READS | awk '{print $1+$2}' ) # in alignment blocks plus unaligned bases plus bases from unmapped reads
+  ##CIGAR_ERROR_RATE3=$( echo ${CIGAR[@]} $BASES_IN_UNMAPPED_READS | awk '{print 1-($1/($1+$2+$3+$4+$5+$(NF))) }' ) # in alignment blocks plus unaligned bases plus bases from unmapped reads
+
+  GLOBAL_READ_ERR_RATE=${1}
+  GLOBAL_HET_RATE=${2}
+  
+  ## HEADER
+  get_QV_by_seq_table_header
+
+  ## LINES
+  while read line ; do
+    LINE_CIGAR=( $( echo $line ) )
+    #CIGAR_MATCHES=$( echo ${LINE_CIGAR[@]} | awk '{print $1}' ) 
+    #CIGAR_ERRORS1=$( echo ${LINE_CIGAR[@]} | awk '{print $2+$3+$4}' ) # in alignment blocks
+    LINE_CIGAR_ERROR_RATE1=$( echo ${LINE_CIGAR[@]} | awk '{print 1-($1/($1+$2+$3+$4)) }' ) # in alignment blocks
+    #CIGAR_ERRORS2=$( echo ${LINE_CIGAR[@]} | awk '{print $2+$3+$4+$5}' ) # in alignment blocks plus unaligned bases
+    LINE_CIGAR_ERROR_RATE2=$( echo ${LINE_CIGAR[@]} | awk '{print 1-($1/($1+$2+$3+$4+$5)) }' ) # in alignment blocks plus unaligned bases
+    #AVGREADLEN=$( echo ${LINE_CIGAR[@]} | awk '{SUMLEN=$1+$2+$4+$5 ; NREADS=$10 ; print SUMLEN/NREADS}' ) # Readlen = M+MM+I+U ; I are bases in read, not ref. D are bases in ref, not read.
+    SUMREADLEN=$( echo ${LINE_CIGAR[@]} | awk '{SUMLEN=$1+$2+$4+$5 ; print SUMLEN }' ) # Readlen = M+MM+I+U ; I are bases in read, not ref. D are bases in ref, not read.
+    SUMALNLEN=$( echo ${LINE_CIGAR[@]} | awk '{SUMLEN=$1+$2+$3+$4 ; print SUMLEN }' ) # alnlen = M+MM+D+I ; 
+    SUMADJALNLEN=$( echo ${LINE_CIGAR[@]} | awk '{SUMLEN=$1+$2+$3+$4+$5 ; print SUMLEN }' ) # adjalnlen = M+MM+D+I+U ; 
+    NREADS=$( echo ${LINE_CIGAR[@]} | awk '{print $10}' )
+    AVGREADLEN=$( echo ${LINE_CIGAR[@]} | awk '{SUMLEN=$1+$2+$4+$5 ; print SUMLEN/$10 }' ) # Readlen = M+MM+I+U ; I are bases in read, not ref. D are bases in ref, not read.
+    AVGALNLEN=$( echo ${LINE_CIGAR[@]} | awk '{SUMLEN=$1+$2+$3+$4 ; print SUMLEN/$10 }' ) # alnlen = M+MM+D+I ; 
+    AVGADJALNLEN=$( echo ${LINE_CIGAR[@]} | awk '{SUMLEN=$1+$2+$3+$4+$5 ; print SUMLEN/$10 }' ) # adjalnlen = M+MM+D+I+U ; 
+
+    LINE_NAME=$( echo ${LINE_CIGAR[@]} | awk '{ print $11 }' ) 
+
+
+    ## Build output string
+    #LINE_QVSTRING="${LINE_NAME}\t${GLOBAL_READ_ERR_RATE}\t${GLOBAL_HET_RATE}\t${LINE_CIGAR_ERROR_RATE1}\t${LINE_CIGAR_ERROR_RATE2}"
+    #LINE_QVSTRING="${LINE_NAME}\t${LINE_CIGAR_ERROR_RATE1}\t${LINE_CIGAR_ERROR_RATE2}"
+    LINE_QVSTRING="${LINE_NAME}"
+
+    for LINE_CIGAR_ERROR_RATE in ${LINE_CIGAR_ERROR_RATE1} ${LINE_CIGAR_ERROR_RATE2} ; do
+      uncorrected=$( echo ${LINE_CIGAR_ERROR_RATE} | QV_calculation_given_total_error 0 0 )
+      readcorrected=$( echo ${LINE_CIGAR_ERROR_RATE} | QV_calculation_given_total_error ${GLOBAL_READ_ERR_RATE} 0 )
+      readhetcorrected=$( echo ${LINE_CIGAR_ERROR_RATE} | QV_calculation_given_total_error ${GLOBAL_READ_ERR_RATE} ${GLOBAL_HET_RATE} )
+      LINE_QVSTRING+="\t${uncorrected}\t${readcorrected}\t${readhetcorrected}"
+    done
+
+    LINE_QVSTRING+="\t${LINE_CIGAR_ERROR_RATE1}\t${LINE_CIGAR_ERROR_RATE2}\t${SUMREADLEN}\t${SUMALNLEN}\t${SUMADJALNLEN}\t${NREADS}\t${AVGREADLEN}\t${AVGALNLEN}\t${AVGADJALNLEN}"
+    echo -e "${LINE_QVSTRING}"	###\t${SUMREADLEN}\t${AVGREADLEN}"
+
+  done < ${EST2}
+}
+
+
+function get_common_output {
+  #ERROR_RATES="${ERR_EST[2]} ${ERR_EST[3]} 0 0.001 0.005 0.01 0.05 0.10"
+  ERROR_RATES="0 ${ERR_EST[3]}"
+  HET_RATES="0 0.0001 0.001 0.01 0.02 0.03 0.04 0.05 0.10"
+  TOTAL=$( grep "^Total Reads" ${ERR1} | awk '{print $( NF )}' )
+  ALIGNED=$( grep "^Total Aligned Reads" ${ERR1} | awk '{print $( NF )}' )
+  UNMAPPED=$( echo $TOTAL-$ALIGNED | bc )
+  PERFECT=$( grep "^Total Perfect Alignments" ${ERR1} | awk '{print $( NF )}' ) 
+  IMPERFECT=$( grep "^Total Imperfect Alignments" ${ERR1} | awk '{print $( NF )}' ) 
+  IMP_ERR=$( echo $IMPERFECT $ALIGNED | awk '{print $1/$2}' )
+  ADJ_IMP_ERR=$( echo $IMPERFECT $UNMAPPED $TOTAL | awk '{print ($1+$2)/$3}' )
+  CIGAR_ERRORS1=$( echo ${CIGAR[@]} | awk '{print $2+$3+$4}' ) # in alignment blocks
+  CIGAR_ERROR_RATE1=$( echo ${CIGAR[@]} | awk '{print 1-($1/($1+$2+$3+$4)) }' ) # in alignment blocks
+  CIGAR_ERRORS2=$( echo ${CIGAR[@]} | awk '{print $2+$3+$4+$5}' ) # in alignment blocks plus unaligned bases
+  CIGAR_ERROR_RATE2=$( echo ${CIGAR[@]} | awk '{print 1-($1/($1+$2+$3+$4+$5)) }' ) # in alignment blocks plus unaligned bases
+  READLEN=$( echo ${CIGAR[@]} | awk '{SUMLEN=$1+$2+$4+$5 ; NREADS=$10 ; print SUMLEN/NREADS}' ) # Readlen = M+MM+I+U ; I are bases in read, not ref. D are bases in ref, not read. 
+  BASES_IN_UNMAPPED_READS=$( echo $UNMAPPED $READLEN | awk '{print $1*$2}' )
+  TOTAL_UNMAPPED_BASES=$( echo $BASES_IN_UNMAPPED_READS ${CIGAR[4]} | awk '{print $1+$2}' ) 
+  CIGAR_ERRORS3=$( echo ${CIGAR_ERRORS2} $BASES_IN_UNMAPPED_READS | awk '{print $1+$2}' ) # in alignment blocks plus unaligned bases plus bases from unmapped reads
+  CIGAR_ERROR_RATE3=$( echo ${CIGAR[@]} $BASES_IN_UNMAPPED_READS | awk '{print 1-($1/($1+$2+$3+$4+$5+$(NF))) }' ) # in alignment blocks plus unaligned bases plus bases from unmapped reads
+
+  echo Average Read Error Estimates:
+  echo "Average BQ, err_rate: ${ERR_EST[0]} (${ERR_EST[2]})" 
+  echo "Average err, err_rate: ${ERR_EST[1]} (${ERR_EST[3]})" 
+  echo
+  grep "^Total Reads" ${ERR1} #pct_identity.err.txt
+  grep "^Total Aligned Reads" ${ERR1} #pct_identity.err.txt
+  grep "^Total Perfect Alignments" ${ERR1}
+  grep "^Total Imperfect Alignments" ${ERR1}
+  grep "^Proportion Perfect Alignments" ${ERR1}
+  grep "^Proportion Imperfect Alignments" ${ERR1}
+  echo "Proportion Imperfect OR Unaligned =" $ADJ_IMP_ERR
+  echo "# bases in average read =" ${READLEN}
+  echo "# matches between in reads and assembly =" ${CIGAR[0]}
+  echo "# mismatches between in reads and assembly =" ${CIGAR[1]}
+  echo "# deletions between in reads and assembly =" ${CIGAR[2]}
+  echo "# insertions between in reads and assembly =" ${CIGAR[3]}
+  echo "# unaligned read bases in reads aligned to assembly =" ${CIGAR[4]}
+  echo "# errors in alignment blocks =" ${CIGAR_ERRORS1}
+  echo "# errors in alignment blocks plus unaligned bases =" ${CIGAR_ERRORS2}
+  echo "# errors in alignment blocks plus unaligned bases plus bases from unmapped reads =" ${CIGAR_ERRORS3}
+  echo "# error rate in alignment blocks =" ${CIGAR_ERROR_RATE1}
+  echo "# error rate in alignment blocks plus unaligned bases =" ${CIGAR_ERROR_RATE2}
+  echo "# error rate in alignment blocks plus unaligned bases plus bases from unmapped reads =" ${CIGAR_ERROR_RATE3}
+  echo 
+  echo "Completeness estimate given data: " $( echo 100*${ALIGNED}/${TOTAL} | bc -l )
+  ##	Note- this is a very optimistic completeness computation; so long as part of the read aligns, it counts as +1.
+  ##	Other methods of doing it would be computing the percent of each read used in an alignment -- e.g. something similar to: awk 'NR>1 {RL=$4+$5+$7+$8 ; AL=$4+$5+$7 ; OFS="\t" ;  SUMRL+=RL; SUMAL+=AL}END{print SUMAL, SUMRL, SUMAL/SUMRL}' flye/minimap2-nanopore.out.txt 
+  ##		- this would need to be integrated with the full lengths of reads with no alignments.
+  ##	As with all completeness estimates used for assembly comparisons, big differences in consensus quality will negatively bias the completeness estimate (making it a joint estimate of completeness and consensus quality; or an estimate of ability to detect or map)
+  echo 
+
+  echo "Estimated QV from error rate in alignment blocks:"
+  get_QV_output3 ${CIGAR_ERROR_RATE1}
+  echo
+  echo "Adjusted QV Estimates from error rate in alignment blocks plus unaligned bases (from aligned reads)"
+  get_QV_output3 ${CIGAR_ERROR_RATE2} 
+  echo
+  echo "Adjusted QV Estimates from error rate in alignment blocks plus unaligned bases (from aligned reads) plus bases from unmapped reads"
+  get_QV_output3 ${CIGAR_ERROR_RATE3} 
+  echo 
+
+  echo "Estimated QV from proportion of imperfectly aligned reads as estimate of error rate:"
+  get_QV_output3 ${IMP_ERR}
+  echo
+  echo "Adjusted QV Estimates using proportion of imperfectly aligned reads as estimate of error rate given unaligned reads as well:"
+  get_QV_output3 ${ADJ_IMP_ERR} 
+  echo
+}
+
+
+
+
+function get_column_output {
+  #echo "Estimated QV from aligned reads assuming read error rate estimated from fastq and heterozygosity rates of: ${HET_RATES} :"
+  echo "Estimated QV from median error rate in aligned reads:"
+  get_QV_output2 ${STATS1} ${HET_RATES} # stats_col9.txt
+  echo
+  echo "Adjusted QV Estimates using median error rate in aligned given unaligned as well:"
+  get_QV_output2 ${STATS2} ${HET_RATES} # stats_col9.updated.txt
+  echo
+}
+
+
+
+function compute_stats {
+  get_stats ${OUT1} ${COL} > ${STATS1}
+  #TOTAL=$( grep "^Total Reads" ${ERR1} | awk '{print $( NF )}' )
+  #ALIGNED=$( grep "^Total Aligned Reads" ${ERR1} | awk '{print $( NF )}' )
+  #UNMAPPED=$( echo $TOTAL-$ALIGNED | bc )
+  get_updated_stats ${OUT1} ${COL} ${UNMAPPED} > ${STATS2}
+}
+
+function get_report {
+  ## expects in ENV: ERR1, PREFIX
+  ARG1=${1}
+  COMPUTE_STATS=true
+  if [ $# -gt 0 ] ; then if [ $ARG1 == "dry" ] || [ $ARG1 == "no" ] || [ $ARG1 == "false" ]; then COMPUTE_STATS=false ; fi ; fi ## This means don't try to recalculate stats files.
+
+  COLS="9 10 11 12 13"
+  COLS="9 11"
+
+  TOTAL=$( grep "^Total Reads" ${ERR1} | awk '{print $( NF )}' )
+  ALIGNED=$( grep "^Total Aligned Reads" ${ERR1} | awk '{print $( NF )}' )
+  UNMAPPED=$( echo $TOTAL-$ALIGNED | bc )
+
+  get_common_output
+
+  for COL in ${COLS} ; do
+    echo "Percent Identity Method from Column $COL"
+    STATS1=${PREFIX}.stats_col${COL}.txt
+    STATS2=${PREFIX}stats_col${COL}.updated.txt
+
+    if $COMPUTE_STATS ; then 
+      compute_stats
+      #get_stats ${OUT1} ${COL} > ${STATS1}
+      ##TOTAL=$( grep "^Total Reads" ${ERR1} | awk '{print $( NF )}' )
+      ##ALIGNED=$( grep "^Total Aligned Reads" ${ERR1} | awk '{print $( NF )}' )
+      ##UNMAPPED=$( echo $TOTAL-$ALIGNED | bc )
+      #get_updated_stats ${OUT1} ${COL} ${UNMAPPED} > ${STATS2}
+    fi 
+
+    ##OUTPUTLINES
+    get_column_output 
+  done
+}
+
+
+function median_QV_pipeline {
+  PREFIX=${1}
+  #COL=${2}
+  MAPFXN=${2}
+
+  OUT1=${PREFIX}.out.txt
+  ERR1=${PREFIX}.err.txt
+
+  ERR_EST=( $( error_estimate ) )
+
+  identity_pipeline ${MAPFXN} 1> ${OUT1} 2> ${ERR1}
+
+  get_report
+}
+
+function get_cigar_sums {
+  # out fields are : 1=M, 2=MM, 3=D, 3=I, 5=U, 6=PI1, 7=PI2, 8=E1, 9=E2 (adj w/ U)
+  awk 'NR>1 {M+=$4 ; MM+=$5 ; D+=$6 ; I+=$7 ; U+=$8 ; NREADS+=1 } END { PI1=M/(M+MM+D+I) ; PI2=M/(M+MM+D+I+U) ; print M, MM, D, I, U, PI1, PI2, 1-PI1, 1-PI2, NREADS}' ${OUT1}
+}
+
+function get_cigar_sums_by_seq {
+  # out fields are : 1=M, 2=MM, 3=D, 3=I, 5=U, 6=PI1, 7=PI2, 8=E1, 9=E2 (adj w/ U)
+  #  for (e in NREADS) { MM[e]+=0 ; D[e]+=0 ; I[e]+=0 ; U[e]+=0 } ;
+  awk 'NR>1 {M[$(NF)]+=$4 ; MM[$(NF)]+=$5 ; D[$(NF)]+=$6 ; I[$(NF)]+=$7 ; U[$(NF)]+=$8 ; NREADS[$(NF)]+=1 ; mTotal+=$4 ; mmTotal+=$5 ; dTotal+=$6 ; iTotal+=$7 ; uTotal+=$8 ; nreadsTotal+=1 } 
+  END { OFS="\t" ;
+    ## REPORT TOTAL AT TOP
+    totalPI1=mTotal/(mTotal+mmTotal+dTotal+iTotal) ;
+    totalPI2=mTotal/(mTotal+mmTotal+dTotal+iTotal+uTotal) ;
+    print mTotal, mmTotal, dTotal, iTotal, uTotal, totalPI1, totalPI2, 1-totalPI1, 1-totalPI2, nreadsTotal, "total" ;
+    for (e in NREADS) { PI1[e]=M[e]/(M[e]+MM[e]+D[e]+I[e]) ; 
+			PI2[e]=M[e]/(M[e]+MM[e]+D[e]+I[e]+U[e]) ; 
+			print M[e], MM[e], D[e], I[e], U[e], PI1[e], PI2[e], 1-PI1[e], 1-PI2[e], NREADS[e], e } }' ${OUT1} 
+}
+
+
+function miniQV_pipeline {
+  ## Depends on several ENV factors incl: R1, GLOBAL_HET_RATE
+  PREFIX=${1}
+
+  echo Initializing ... 1>&2 
+  RUN_NEW_COMPUTATIONS=false
+  OUT1=${PREFIX}.out.txt
+  ERR1=${PREFIX}.err.txt
+  EST1=${PREFIX}.read-error.txt
+  EST2=${PREFIX}.cigar-sums.txt
+  EST3=${PREFIX}.cigar-QV-table.txt
+
+  if [ $# -gt 1 ]; then
+    echo ... ... will run computations 1>&2
+    MAPFXN=${2}
+    RUN_NEW_COMPUTATIONS=true ;
+  else 
+    echo ... ... dry run 1>&2
+  fi
+
+
+  if ${RUN_NEW_COMPUTATIONS}; then
+    echo Computing read error estimate, writing to file.... 1>&2
+    ERR_EST=( $( error_estimate ) )	#### NEED THE error_estimate function to detect BAMMODE, and if BAMMODE, then get this from the BAM file (can use samtools to convert to fastq and pipeinto seqtk)
+    #error_estimate > ${EST1}
+    echo ${ERR_EST[@]} > ${EST1}
+  else 
+   if [ -f ${EST1} ]; then
+     echo Getting read error estimate from file.... 1>&2
+     ERR_EST=( $( head -n 1 $EST1 ) )
+   else
+     echo WARN: Read error estimate not computed now, nor was pre-computed file found. Using 0.001 arbitrarily.... 1>&2
+     ERR_EST=( 30 30 0.001 0.001 )
+   fi
+  fi
+
+
+  if ${RUN_NEW_COMPUTATIONS}; then 
+    echo Running identity pipeline..... 1>&2
+    identity_pipeline ${MAPFXN} 1> ${OUT1} 2> ${ERR1} ; 
+    echo Computing cigar sums, writing to file..... 1>&2
+    get_cigar_sums_by_seq > ${EST2}
+    get_QV_by_seq_table ${ERR_EST[3]} ${GLOBAL_HET_RATE} > ${EST3}
+    CIGAR=( $( head -n 1 $EST2 ) )
+  else
+    echo Skipping identity pipeline.... 1>&2
+   if [ -f ${EST2} ]; then
+     echo Getting cigar sums from file..... 1>&2
+     CIGAR=( $( head -n 1 $EST2 ) )
+   else
+     echo WARN: CIGAR sums not computed now, nor was pre-computed file found. Using arbitrarily vector corresponding to approx 0.001 error rates.... 1>&2
+     CIGAR=( 2997 1 1 1 150 0.999 0.951429 0.001 0.0485714 50 total )
+   fi
+    
+  fi
+
+  echo Getting Report... 1>&2
+  get_report ${RUN_NEW_COMPUTATIONS}
+}
+
+
+function format_collectComparableQVs {
+  paste -sd"\t" - | awk '{OFS="\t"; print $1,$2,$3,$7,$11,$15,$16}' 
+}
+function collectComparableQVs {
+  if [ $# -ge 1 ]; then HETRATE=${1} ; else HETRATE=0 ; fi
+  if [ $# -ge 2 ]; then 
+    # use read error rate
+    for f in */miniQV.out.txt ; do awk -v "HET=$HETRATE" '$1!=0 && $2==HET {print $1,$2,$3, FILENAME}' $f | format_collectComparableQVs ; done
+  else 
+    for f in */miniQV.out.txt ; do awk -v "HET=$HETRATE" '$1==0 && $2==HET {print $1,$2,$3, FILENAME}' $f | format_collectComparableQVs ; done
+  fi
+}
+
+
+
+
+#for f in miniasm.pctId.txt racon-miniasm.pctId.txt flye-miniasm.pctId.txt flye.pctId.txt ; do echo $f ; awk 'NR>1' $f | asm-stats.py -A ${f} -k 9 | grep -E 'Mean|Median' ; echo ; done
+#join -1 1 -2 1 <( cut -f 1,2 miniasm.pctId.txt | awk 'NR>1' | sort -k1,1 ) <( cut -f 1,2 racon-miniasm.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,2 flye-miniasm.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,2 flye.pctId.txt | awk 'NR>1' | sort -k1,1 ) > common-reads-num-splits.txt
+#join -1 1 -2 1 <( cut -f 1,9 miniasm.pctId.txt | awk 'NR>1' | sort -k1,1 ) <( cut -f 1,9 racon-miniasm.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,9 flye-miniasm.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,9 flye.pctId.txt | awk 'NR>1' | sort -k1,1 ) > common-reads-pctID_1.txt
+#i=4 ; join -1 1 -2 1 <( cut -f 1,${i} miniasm.pctId.txt | awk 'NR>1' | sort -k1,1 ) <( cut -f 1,${i} racon-miniasm.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,${i} flye-miniasm.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,${i} flye.pctId.txt | awk 'NR>1' | sort -k1,1 ) > common-reads-num_matches.txt
+#i=2 ; for f in gfas1-to-flye.pctId.txt gfas1-to-wtdbg2.pctId.txt  ; do echo $f ; awk 'NR>1' $f | asm-stats.py -A ${f} -k ${i} | grep -E 'Mean|Median' ; echo ; done
+#i=4 ; join -1 1 -2 1 <( cut -f 1,${i} gfas1-to-flye.pctId.txt | awk 'NR>1' | sort -k1,1 ) <( cut -f 1,${i} gfas1-to-wtdbg2.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,${i} gfas1-to-flye.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,${i} gfas1-to-wtdbg2.pctId.txt | awk 'NR>1' | sort -k1,1 ) > gfas-common-reads-num_matches.txt
+#stats.py -i gfas-common-reads-num_matches.txt -k 2
+#stats.py -i gfas-common-reads-num_matches.txt -k 3
+#i=2 ; join -1 1 -2 1 <( cut -f 1,${i} gfas1-to-flye.pctId.txt | awk 'NR>1' | sort -k1,1 ) <( cut -f 1,${i} gfas1-to-wtdbg2.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,${i} gfas1-to-flye.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,${i} gfas1-to-wtdbg2.pctId.txt | awk 'NR>1' | sort -k1,1 ) > gfas-common-reads-num_splits.txt
+#i=9 ; join -1 1 -2 1 <( cut -f 1,${i} gfas1-to-flye.pctId.txt | awk 'NR>1' | sort -k1,1 ) <( cut -f 1,${i} gfas1-to-wtdbg2.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,${i} gfas1-to-flye.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,${i} gfas1-to-wtdbg2.pctId.txt | awk 'NR>1' | sort -k1,1 ) > gfas-common-reads-pctID_1.txt
+#i=11 ; join -1 1 -2 1 <( cut -f 1,${i} gfas1-to-flye.pctId.txt | awk 'NR>1' | sort -k1,1 ) <( cut -f 1,${i} gfas1-to-wtdbg2.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,${i} gfas1-to-flye.pctId.txt | awk 'NR>1' | sort -k1,1 ) | join - <( cut -f 1,${i} gfas1-to-wtdbg2.pctId.txt | awk 'NR>1' | sort -k1,1 ) > gfas-common-reads-pctID_3.txt
+
+
+
+
+
+
+
+#########################################################################################################
+## EXECUTION FUNCTIONS
+#########################################################################################################
+
+function write_script {
+###source ~/.bash_profile
+  echo "#!/bin/bash
+###source ${UTILS}/helper-functions.txt
+export PATH=${PATH}
+export PYTHONPATH=${PYTHONPATH}
+export MINIMAP2=${MINIMAP2}
+export MAPFXN=${MAPFXN}
+export SKIP_N=${SKIP_N}
+export UPTO_N=${UPTO_N}
+export TRIM5=${TRIM5}
+export TRIM3=${TRIM3}
+export R1=${R1}
+export ARR=( ${ARR[@]} )
+export PRE=${PRE}
+export ASM=${ASM}
+export GLOBAL_HET_RATE=${GLOBAL_HET_RATE}
+export SAVESAM=${SAVESAM}
+export SAMOUT=${SAMOUT}
+export FORCESORT=${FORCESORT}
+
+
+export SCRIPTDIR=${SCRIPTDIR}
+export UTILS=${UTILS}
+export PYSCRIPTS=${PYSCRIPTS}
+export PATH=${PATH}
+export PYTHONPATH=${PYTHONPATH}
+export INPUT=${INPUT}
+export READS=${READS}
+export R1=${R1}
+export FOFN=${FOFN}
+export DATATYPE=${DATATYPE}
+export MAPPER=${MAPPER}
+export BTMODE=${BTMODE}
+export MAPFXN=${MAPFXN}
+export BAMMODE=${BAMMODE}
+export FOFNMODE=${FOFNMODE}
+export THREADS=${THREADS}
+export P=${P}
+export GLOBAL_HET_RATE=${GLOBAL_HET_RATE}
+export HET_RATE_NOT_PROVIDED=${HET_RATE_NOT_PROVIDED}
+export SKIP_N=${SKIP_N}
+export UPTO_N=${UPTO_N}
+export SAVESAM=${SAVESAM}
+export SAMOUT=${SAMOUT}
+export FORCESORT=${FORCESORT}
+export VERBOSE=${VERBOSE}
+export SLURM=${SLURM}
+export TIME=${TIME}
+export MEM=${MEM}
+export MINIMAP2=${MINIMAP2}
+export BT2=${BT2}
+export BUILD=${BUILD}
+export MAGIC=${MAGIC}
+export MAGICBUILD=${MAGICBUILD}
+
+
+
+miniQV_pipeline ${PRE}_${MAPFXN} ${MAPFXN} 1> miniQV_${PRE}_${MAPFXN}.out.txt 2> miniQV_${PRE}_${MAPFXN}.err.txt
+## NOTE: get outputs after run over w/o new computations by running again w/ only 1st arg: miniQV_pipeline minimap2-endbonus
+
+"
+}
+
+
+
+function write_and_launch_single {
+  BASE=$( basename ${INPUT} )
+  PRE=$( echo ${BASE} | awk '{sub(/.fasta|.fa|.bam|.sam|.fna|.fq|.fastq/,""); print}' )_miniQV
+  ###$( basename $( basename $( basename $( basename ${INPUT} .fasta ) .fa ) .bam ) .sam )_miniQV
+
+  SEED=$RANDOM
+  export FOFN=miniQV-autogen-${SEED}.fofn
+  echo -e "${PRE}\t${INPUT}" > ${FOFN}
+  write_and_launch_loop
+}
+
+function write_and_launch_loop {
+  OUTDIR=miniqv_output
+  mkdir -p ${OUTDIR} && cd ${OUTDIR}
+  export MAIN=${PWD}
+  echo MAIN WD: ${MAIN}
+
+  SCRIPT=auto-written-miniQV_${PRE}${MAPFXN}.sh
+
+  if ! ${FOFNMODE} ; then
+    PRE=$( basename $( basename ${INPUT} .fasta ) .bam )_miniQV
+    SEED=$RANDOM
+    export FOFN=${MAIN}/miniQV-autogen-${SEED}.fofn
+    echo -e "${PRE}\t${INPUT}" > ${FOFN}
+  fi
+
+  ## Expects either 2-col or 3-col fofn file:
+  ## 	2-col: nickname	/path/to/asm.fasta
+  ## 	3-col: group	nickname	/path/to/asm.fasta
+  ## In each, nickname is the desired prefix for outputs
+  ## For 3-col, group is a single word groupname to help organize assemblies into meaningful groups.
+  ## 	Instead of making a set of nickname dirs all in the same directory, nickname dirs in the same group will be subdirs under the groupname dir.
+  ##    This can be useful for clustering the various stages of a given assembly under the same dir (and away from other assemblies).
+  ## 	For example, perhaps you have two assemblies from Canu and Flye, as well as various long-read and short-read polished versions of them.
+  ## 		All the versions of the Canu assembly can be grouped under "canu", and all the Flye ones under "flye".
+
+  ## CHECK NCOLS
+  NVALS=$( awk '{print NF}' ${FOFN} | sort -u | wc -l )
+  if [ $NVALS -ne 1 ]; then echo "FOFN had lines with differing numbers of fields. This may cause unexpected results or a crash. It may not." ; fi
+  NCOLS=$( awk '{print NF}' ${FOFN} | sort -nr -u | head -n 1 ) 
+  if [ $NCOLS -ne 2 ] && [ $NCOLS -ne 3 ]; then echo "Estimating FOFN type failed. FOFN should have either 2 or 3 columns. Erase lines that may be causing this error." ; exit ; fi
+
+  while read line ; do
+    ARR=($( echo $line ) )
+    if [ $NCOLS -eq 2 ]; then
+      export PRE=${ARR[0]}
+      export ASM=${ARR[1]}
+      export INPUT=${ASM} ## for FOFN BAM mode
+      echo ${PRE} ${ASM}
+      SUBDIR=${PRE}
+    elif [ $NCOLS -eq 3 ]; then
+      GROUP=${ARR[0]}
+      PRE=${ARR[1]}
+      ASM=${ARR[2]}
+      export INPUT=${ASM} ## for FOFN BAM mode
+      echo ${GROUP} ${PRE} ${ASM}
+      SUBDIR=${GROUP}/${PRE}
+    else
+       echo "This message should never be seen. It suggests something went wrong in NCOLS stage..." ; exit
+    fi
+  
+    if [ ! -d ${SUBDIR} ]; then
+      mkdir -p ${SUBDIR} && cd ${SUBDIR}
+      write_script > ${SCRIPT}
+      if $SLURM ; then
+        echo "sbatch --mem=${MEM} --time=${TIME} --nodes=1 --ntasks ${P} -J miniqv-${PRE} -o slurm-miniqv-${PRE}-%A.out ${SCRIPT}"
+        sbatch --mem=${MEM} --time=${TIME} --nodes=1 --ntasks ${P} -J miniqv-${PRE} -o slurm-miniqv-${PRE}-%A.out --export=ALL ${SCRIPT}
+      else
+        echo "bash ${SCRIPT}"
+        bash ${SCRIPT}
+      fi
+      cd ${MAIN}
+    else
+      echo "${PRE} directory already present... not overwriting... skipping."
+    fi
+    echo
+  done < ${FOFN}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+function write_and_launch_bam_loop {
+  SCRIPT=auto-written-miniQV_${PRE}_bam-mode.sh
+}

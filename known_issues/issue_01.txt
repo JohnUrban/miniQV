@@ -1,0 +1,60 @@
+1. SLURM kills script at mapping step. Exit 141.
+
+    Example Error message fount in *.err.txt
+
+	[M::mm_idx_gen::149.354*0.40] collected minimizers
+	/var/spool/slurmd/job29074803/slurm_script: line 1: 212152 Exit 141                skiptake
+	     212153 Killed                  | ${MINIMAP2} -a -x sr --end-bonus 5 ${ASM} -
+	Traceback (most recent call last):
+	  File "/home/jurban/software/for_workboots/coral/miniQV/utils/miniqvpy/samPctIdentity.py", line 69, in <module>
+	    sam = SamSplitAlnAggregator(args.sam)
+	  File "/home/jurban/software/for_workboots/coral/miniQV/utils/miniqvpy/samclass.py", line 621, in __init__
+	    Sam.__init__(self, samfile)
+	  File "/home/jurban/software/for_workboots/coral/miniQV/utils/miniqvpy/samclass.py", line 29, in __init__
+	    self.parse_header()
+	  File "/home/jurban/software/for_workboots/coral/miniQV/utils/miniqvpy/samclass.py", line 626, in parse_header
+	    while headerline[0] == '@':
+	IndexError: string index out of range
+
+    Example Error message in miniQV*err.txt:
+
+	Initializing ...
+	... ... will run computations
+	Computing read error estimate, writing to file....
+	Running identity pipeline.....
+	Computing cigar sums, writing to file.....
+	awk: cmd. line:4: fatal: division by zero attempted
+	Getting Report...
+	(standard_in) 2: syntax error
+	(standard_in) 2: syntax error
+	awk: cmd. line:1: (FILENAME=- FNR=1) fatal: division by zero attempted
+	awk: cmd. line:1: (FILENAME=- FNR=1) fatal: division by zero attempted
+	awk: cmd. line:1: (FILENAME=- FNR=1) fatal: division by zero attempted
+	awk: cmd. line:1: (FILENAME=- FNR=1) fatal: division by zero attempted
+	awk: cmd. line:1: (FILENAME=- FNR=1) fatal: division by zero attempted
+	awk: cmd. line:1: (FILENAME=- FNR=1) fatal: division by zero attempted
+	(standard_in) 1: syntax error
+	Traceback (most recent call last):
+	  File "/home/jurban/software/for_workboots/coral/miniQV/utils/miniqvpy/stats.py", line 153, in <module>
+	    MAX = max(l)
+	ValueError: max() arg is an empty sequence
+	Traceback (most recent call last):
+	  File "/home/jurban/software/for_workboots/coral/miniQV/utils/miniqvpy/stats.py", line 172, in <module>
+	    E = e_size(l,G=A)
+	  File "/home/jurban/software/for_workboots/coral/miniQV/utils/miniqvpy/stats.py", line 99, in e_size
+	    return sum([e**2 for e in l])/float(total)
+	ZeroDivisionError: float division by zero
+	Traceback (most recent call last):
+	  File "/home/jurban/software/for_workboots/coral/miniQV/utils/miniqvpy/stats.py", line 153, in <module>
+	    MAX = max(l)
+	ValueError: max() arg is an empty sequence
+	Traceback (most recent call last):
+	  File "/home/jurban/software/for_workboots/coral/miniQV/utils/miniqvpy/stats.py", line 172, in <module>
+	    E = e_size(l,G=A)
+	  File "/home/jurban/software/for_workboots/coral/miniQV/utils/miniqvpy/stats.py", line 99, in e_size
+	    return sum([e**2 for e in l])/float(total)
+	ZeroDivisionError: float division by zero
+
+
+SOLUTION:
+- You are likely not specifying enough MEMORY to slurm. Increase amount given to -M option of miniQV.
