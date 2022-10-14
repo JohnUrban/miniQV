@@ -70,6 +70,9 @@ export SAMOUT=""
 export FORCESORT=false
 export FORCEFILTER=false
 export WDNAME=miniqv_output
+export STOP_AFTER_COMPUTING_READ_ERROR=false
+export READERRFILE=""
+export BYPASS_READ_ERROR_STEP=false
 export VERBOSE=false
 export A=false
 export B=false
@@ -78,7 +81,7 @@ export TIME=6:00:00    ## SLURM option
 export MEM=6G          ## SLURM option
 
 
-while getopts "a:b:fr:d:m:x:t:H:s:n:ST:M:W:NUo:v" arg; do
+while getopts "a:b:fr:d:m:x:t:H:s:n:ST:M:W:NUo:RE:v" arg; do
     case $arg in
 	a) export INPUT=${OPTARG} ; export BAMMODE=false ; A=true ;; 		## if it is FOFN, then 2- or 3-columns and need -F flag; autodetects 2- vs 3- ; otherwise this is a asm FASTA
         b) export INPUT=${OPTARG} ; export BAMMODE=true ; B=true ;; 		## if it is FOFN, then 2- or 3-columns and need -F flag; autodetects 2- vs 3- ; otherwise this is a BAM
@@ -99,6 +102,8 @@ while getopts "a:b:fr:d:m:x:t:H:s:n:ST:M:W:NUo:v" arg; do
 	U) export FORCEFILTER=true ;; 
 	o) export WDNAME=${OPTARG} ;;
 	v) export VERBOSE=true ;;
+	R) export STOP_AFTER_COMPUTING_READ_ERROR=true ;; 
+	E) export READERRFILE=${OPTARG}; BYPASS_READ_ERROR_STEP=true ;; 
         *) help; exit;;
     esac
 done
@@ -161,8 +166,8 @@ for REQOPT in INPUT READS ; do if [ -z ${REQOPT} ]; then echo "${!REQOPT} was no
 
 #for OPT in INPUT READS FOFNMODE DATATYPE MAPPER BTMODE MAPFXN THREADS GLOBAL_HET_RATE SKIP_N UPTO_N SLURM TIME MEM SAVESAM SAMOUT FORCESORT VERBOSE ; do echo -e "${OPT}\t${!OPT}" ; done
 
-ALLVARS="SCRIPTDIR UTILS PYSCRIPTS PATH PYTHONPATH EXEDIR INPUT_GIVEN INPUT READS_GIVEN READS R1 FOFN_GIVEN FOFN DATATYPE MAPPER BTMODE MAPFXN BAMMODE FOFNMODE THREADS P GLOBAL_HET_RATE HET_RATE_NOT_PROVIDED SKIP_N UPTO_N SAVESAM SAMOUT FORCESORT FORCEFILTER VERBOSE SLURM TIME MEM MINIMAP2 BT2 BUILD MAGIC MAGICBUILD"
-for OPT in ${ALLVARS} ; do echo -e "${OPT}\t${!OPT}" ; done
+ALLVARS="SCRIPTDIR UTILS PYSCRIPTS PATH PYTHONPATH EXEDIR INPUT_GIVEN INPUT READS_GIVEN READS R1 FOFN_GIVEN FOFN DATATYPE MAPPER BTMODE MAPFXN BAMMODE FOFNMODE THREADS P GLOBAL_HET_RATE HET_RATE_NOT_PROVIDED SKIP_N UPTO_N SAVESAM SAMOUT FORCESORT FORCEFILTER STOP_AFTER_COMPUTING_READ_ERROR READERRFILE BYPASS_READ_ERROR_STEP VERBOSE SLURM TIME MEM MINIMAP2 BT2 BUILD MAGIC 
+MAGICBUILD" for OPT in ${ALLVARS} ; do echo -e "${OPT}\t${!OPT}" ; done
 
 if $HET_RATE_NOT_PROVIDED ; then echo -e "Warning: a heterozygosity rate was not provided. The default of ${GLOBAL_HET_RATE} is being used. Ultimately, this means that you should not use the QVs computed after subtracting errors due to heterozygosity (unless the expected het rate is close to the default used).\n" ; fi
 

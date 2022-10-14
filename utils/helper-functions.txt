@@ -993,21 +993,29 @@ function miniQV_pipeline {
   fi
 
 
-  if ${RUN_NEW_COMPUTATIONS}; then
-    echo Computing read error estimate, writing to file.... 1>&2
-    ERR_EST=( $( error_estimate ) )	#### NEED THE error_estimate function to detect BAMMODE, and if BAMMODE, then get this from the BAM file (can use samtools to convert to fastq and pipeinto seqtk)
-    #error_estimate > ${EST1}
-    echo ${ERR_EST[@]} > ${EST1}
-  else 
-   if [ -f ${EST1} ]; then
-     echo Getting read error estimate from file.... 1>&2
-     ERR_EST=( $( head -n 1 $EST1 ) )
-   else
-     echo WARN: Read error estimate not computed now, nor was pre-computed file found. Using 0.001 arbitrarily.... 1>&2
-     ERR_EST=( 30 30 0.001 0.001 )
-   fi
+  if ${BYPASS_READ_ERROR_STEP} ; then
+    cp ${READERRFILE} ${EST1}	## Copy it to where it is expected.
+    ERR_EST=( $( head -n 1 $EST1 ) )
+  else
+    if ${RUN_NEW_COMPUTATIONS}; then
+      echo Computing read error estimate, writing to file.... 1>&2
+      ERR_EST=( $( error_estimate ) )	#### NEED THE error_estimate function to detect BAMMODE, and if BAMMODE, then get this from the BAM file (can use samtools to convert to fastq and pipeinto seqtk)
+      #error_estimate > ${EST1}
+      echo ${ERR_EST[@]} > ${EST1}
+    else 
+     if [ -f ${EST1} ]; then
+       echo Getting read error estimate from file.... 1>&2
+       ERR_EST=( $( head -n 1 $EST1 ) )
+     else
+       echo WARN: Read error estimate not computed now, nor was pre-computed file found. Using 0.001 arbitrarily.... 1>&2
+       ERR_EST=( 30 30 0.001 0.001 )
+     fi
   fi
 
+  if ${STOP_AFTER_COMPUTING_READ_ERROR}; then 
+    echo -e "\tStopping after read error step.\n\t- Locate read error file here: ${EST1}\n\t- Use that file with -E option to bypass read error estimation step in future runs with the following read file:\n\t- ${R1}\n... Exiting. Good bye. :)"
+    exit 0
+  fi
 
   if ${RUN_NEW_COMPUTATIONS}; then 
     echo Running identity pipeline..... 1>&2
