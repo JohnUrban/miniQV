@@ -1085,7 +1085,7 @@ miniQV_pipeline ${PRE}_${MAPFXN} ${MAPFXN} 1> miniQV_${PRE}_${MAPFXN}.out.txt 2>
 function prep_single {
   BASE=$( basename ${INPUT} )
   echo HERE I AM: BASE : ${BASE} 1>&2
-  PRE=$( echo ${BASE} | awk '{sub(/.fasta|.fa|.bam|.sam|.fna|.fq|.fastq/,""); print}' )_miniQV
+  PRE=$( echo ${BASE} | awk '{sub(/\.fasta|\.fa|\.bam|\.sam|\.fna|\.fq|\.fastq/,""); print}' )_miniQV
   echo HERE I AM: PRE : ${PRE} 1>&2
   ###$( basename $( basename $( basename $( basename ${INPUT} .fasta ) .fa ) .bam ) .sam )_miniQV
 
