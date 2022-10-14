@@ -362,6 +362,12 @@ function update_input {
    else
      if ${FOFNMODE}; then export FOFN=${INPUT} ; fi
   fi
+  if ${BYPASS_READ_ERROR_STEP}; then
+    if [ ${READERRFILE: 0:1} != "/" ]; then
+      READERRFILE=../../${READERRFILE}
+    fi
+  fi
+
 }
 
 function update_reads {
@@ -1003,13 +1009,14 @@ function miniQV_pipeline {
       #error_estimate > ${EST1}
       echo ${ERR_EST[@]} > ${EST1}
     else 
-     if [ -f ${EST1} ]; then
-       echo Getting read error estimate from file.... 1>&2
-       ERR_EST=( $( head -n 1 $EST1 ) )
-     else
-       echo WARN: Read error estimate not computed now, nor was pre-computed file found. Using 0.001 arbitrarily.... 1>&2
-       ERR_EST=( 30 30 0.001 0.001 )
-     fi
+      if [ -f ${EST1} ]; then
+        echo Getting read error estimate from file.... 1>&2
+        ERR_EST=( $( head -n 1 $EST1 ) )
+      else
+        echo WARN: Read error estimate not computed now, nor was pre-computed file found. Using 0.001 arbitrarily.... 1>&2
+        ERR_EST=( 30 30 0.001 0.001 )
+      fi
+    fi
   fi
 
   if ${STOP_AFTER_COMPUTING_READ_ERROR}; then 
