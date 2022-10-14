@@ -343,6 +343,8 @@ function version_check {
 
 function update_input {
   export INPUT_GIVEN=${INPUT}
+  if ${FOFNMODE}; then export FOFN_GIVEN=${INPUT} ; fi
+
   if [ ${INPUT: 0:1} != "/" ]; then
     ## Relative path was given
     ## readlink -f has different behavior on some Mac OS than on Linux; in that case greadlink -f is needed.
