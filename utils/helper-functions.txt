@@ -353,9 +353,12 @@ function update_input {
     ## This creates some trickery. A backslash can be used (My\ Drive), but the spaces can still be interpreted as separating arguments to scripts and functions.
     ## The user, or this program needs to put quotes around the path for it to be interpreted as a single 'word' or arg. Quotes may be needed every time it is used.
     export INPUT=../../${INPUT}
+    if ${FOFNMODE}; then export FOFN=../${INPUT} ; fi    
     #export INPUT=${EXEDIR}/${INPUT}
     #export INPUT=$( readlink -f ${INPUT} )
     #export INPUT=$( realpath -s ${INPUT} )
+   else
+     if ${FOFNMODE}; then export FOFN=${INPUT} ; fi
   fi
 }
 

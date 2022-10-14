@@ -109,7 +109,7 @@ done
 #########################################################################################################
 ## INTERPRET CMDLINE ARGS TO GET ABS PATH FOR INPUT
 #########################################################################################################
-update_input	## Need to do this above FOFN=${INPUT} when -f
+update_input	
 update_reads
 
 
@@ -117,7 +117,7 @@ update_reads
 ## INTERPRET CMDLINE ARGS TO REJECT ERRORS AND SET VARS
 #########################################################################################################
 if $A && $B ; then echo "Please specify only -a or -b. Exiting..." ; exit ; fi
-if ${FOFNMODE}; then export FOFN=${INPUT} ; fi
+##if ${FOFNMODE}; then export FOFN=${INPUT} ; fi  ## DELETE: now done in update_input
 
 
 #########################################################################################################
