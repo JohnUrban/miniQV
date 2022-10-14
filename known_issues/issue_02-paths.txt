@@ -1,0 +1,3 @@
+- Paths and filenames should not have spaces.
+- miniQV should be installed in a dir where the path does not have spaces.
+- Using absolute paths is advised over relative paths.

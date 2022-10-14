@@ -1,0 +1,16 @@
+- Not designed for paired reads, but you can try.
+- If paired BAM that is name-sorted already, use -U to force-remove unmapped reads.
+- If paired BAM that is position sorted, need -U and -N to force name sorting and removing unmapped reads.
+- If R1 and R2 fastq, 
+	- Consider doing separate analyses on them.
+		- R1 is often higher quality than R2, and R1 results are preferred to R2 results.
+	- Consider concatenating the files, then running the analysis.
+		- cat R1.fq R2.fq > both.fq
+		- gunzip -c R1.fq.gz R2.fq.gz | gzip -c > both.fq.gz
+		- reads will be grouped by name, but mates will not be grouped.
+			- in rare cases where they are grouped by chance, an error may arise if one is unmapped.
+				- -U would allow the analysis to complete w/o unmapped reads.
+		- since mates are not grouped, they are treated independently.
+			- thus, this way to analyze the paired reads would be like taking an average of doing them separately.
+		- If you choose to group the mates together, use -N to force name sorting.
+			- In this case, -U will almost certainly be needed as well.

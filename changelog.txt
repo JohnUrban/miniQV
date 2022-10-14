@@ -1,6 +1,19 @@
+# Version 0.0.3, 2022-10-14
+	- Added -U to force-remove unmapped reads from analysis.
+		- This is mainly for trying to analyze paired-end BAMs where one mate may be mapped and the other is not.
+		- Ultimately, advice would be to:
+			- analyze mates separately if starting from Fastq.
+			- use -N and -U if analyzing a pre-made position-sorted paired BAM
+				- This will make some results "meaningless"
+					- Completeness will arbitrarily be 100%
+					- QVs adjusted for unmapped reads will be same as without adjusting them.
+		- See known_issues #3 for more info.
+
+
 # Version 0.0.2, 2022-10-14
-- Handles relative paths to -a, -b, -r input files.
-- Can provide non-default output directory name (default = miniqv_output).
+	- Handles relative paths to -a, -b, -r input files.
+	- Can provide non-default output directory name (default = miniqv_output).
+
 
 # Version 0.0.1, 2022-10-13
-- First commit, unoffical release
+	- First commit, unoffical release

@@ -13,16 +13,15 @@ function help {
 
         This produces a variety of alignment-based statistics that can be used to compare a set of assemblies.
         - Simply use the same read set and MiniQV parameters on each assembly.
-        - Ultimately, the QV aspect of miniQV was designed for high accuracy short reads.
+        - Ultimately, the QV aspect of miniQV was designed for high accuracy short reads, a single end at a time.
 		- High accuracy contigs or high acc long reads should be fine).
                 - Can technically be used on/for any alignments though: short reads, long reads, contigs, etc.
                 - The same types of outputs will be produced, but interpretations will have to change accordingly.
                 - Although error-prone reads can produce results that can be compared between assemblies, they may not be meaningful in an absolute sense.
                         - QV values will appear quite low even when correcting for the error-rate.
                 - Designed with single-end reads (or single long reads) in mind.
-                - Paired reads will work fine, but they return joint percent ID (and error rate) estimates based on both reads.
-                        - The number of "split" alignments will be 2 for pairs that both map and don't split.
-	- Nevertheless, the mis-assembly aspects of this pipeline were designed with long reads in mind (although short reads can work too).
+			- For a discussion on using with paired reads, see bottom section.
+	- Conversely, the mis-assembly aspects of this pipeline were designed with long reads in mind (although short reads can work too).
 		- Prevalence of mis-assemblies assessed by comparing the prevalence of split alignments among assemblies.
 		- These comparisons are not totally released with version 0.0.1 though.
 
@@ -166,6 +165,12 @@ function help {
 			  - using a mapper that doesn't output alignments grouped by read name, or 
 			  - working with BAMs that are position sorted.
 
+	-U	FILTER	: Force remove unmapped reads before analysis. This may be necessary if trying to do paired-end analysis.
+			  Use this flag without an argument.
+                       	  Removing unmapped reads will make some results "meaningless".
+                          - Completeness will arbitrarily be 100%.
+	                  - QVs adjusted for unmapped reads will be same as without adjusting them.
+
 	-o	OUTDIR	: Name of main top-level output directory. 
 			  Default = miniqv_output.
 
@@ -242,6 +247,43 @@ function help {
 	- This script was developed to evaluate the quality of various genome assemblies for the fungus gnat, Bradysia coprophila.
 	- It is free to use, further develop, criticize, etc.
 	- Feel free to cite this github repo if you find it helpful in your own research.
+
+
+
+
+
+	FAQs:
+
+        - Paired reads:
+		- To reiterate, this was designed with single-end (or long reads) in mind, but if you want to try paired, then read on.
+		- If using read files and mapping (i.e. not BAM mode), then:
+			- Consider just doing R1 and R2 separately. 
+				- R2 is often lower quality than R1.
+				- R1 results are preferred to R2 results in such cases.
+			- Concatenate the read files:
+				- Since the mates will not be grouped together in mapping, most or all will not be grouped in the mapper output.
+				- Thus, mates will be evaluated independently, which is fine for this analysis. 
+				- This will produce a result similar to if you averaged results for R1 and R2 performed separately.
+		- Options where you need to force-remove unmapped reads (-U):
+			- 1. Concatenate the read files and force name sorting.
+			- 2. Starting with a BAM where reads were mapped as pairs.
+			- In both cases, mapped reads that have unmapped mates, will cause samPctIdentity.py to fail (for now).
+				- It is working with the shared read name from mate1/mate2 as if it is a mapped read.
+				- It fails when it tried to obtain the NM:i: tag from the unmapped mate.
+			- Thus, if you concatenate and force a name sort (-N), you will need to also force remove unmapped reads (-U).
+			- This means there will be no adjusted QV based on unmapped reads (since none will be detected).
+			- Most output is unaffected otherwise.
+		- When mates have the same name and are grouped together (e.g. name sorted):
+		 	- Force-removing unmapped reads is needed (discussed above).
+			- Returns a joint percent ID (and error rate) estimates based on one or both reads (depending if one or both mapped).
+                	- The number of "split" alignments will be 2 for pairs that both map and don't split.
+				- It will be 1 for reads that are not split and have an unmapped mate.
+				- Generally, there is uncertainty for the number of splits reported when >1.
+				- But the uncertainty is only +/- 1.
+	        - Ultimately, advice would be to: 
+        	        - analyze mates separately if starting from Fastq.
+                	- use -N and -U if analyzing a pre-made position-sorted paired BAM                            
+                        	- -U will make some results "meaningless" (see -U option info).
 
 
 
@@ -404,6 +446,7 @@ function skiptake {
 }
 
 function error_estimate {
+  ## FUTURE: would be easy to modify if FORCEFILTER is used in BAMMODE (use map_maybe_filter fxn). Annoying if regular mode. I don't think it will make a big diff for big samples with high map rates though.
   if ${BAMMODE}; then
     skiptake | samtools fastq - | seqtk fqchk -q 0 - | awk '$1 ~ /^ALL/ {print $8, $9, 10^($8/-10), 10^($9/-10)}'
   else
@@ -554,18 +597,23 @@ function identity {
   fi
 }
 
+function map_maybe_filter {
+  if $FORCEFILTER ; then
+    ${MAPFXN} | samtools view -h -F 4 
+  else
+    ${MAPFXN}
+  fi
+}
+
 function identity_pipeline {
    if ${SAVESAM} ; then
       #SAM=intermediate.sam
-      ${MAPFXN} > ${SAMOUT} ; cat ${SAMOUT} | identity
+      #${MAPFXN} | tee ${SAMOUT} | identity
+      #${MAPFXN} > ${SAMOUT} ; cat ${SAMOUT} | identity
+      map_maybe_filter > ${SAMOUT} ; cat ${SAMOUT} | identity
    else
-      ${MAPFXN} | identity
+      map_maybe_filter | identity
    fi
-   #if ${BAMMODE}; then
-   #   samtools view 
-   #else
-   #  ${MAPFXN} | identity 
-   #fi
 }
 
 function get_stats {
@@ -1064,6 +1112,7 @@ export UPTO_N=${UPTO_N}
 export SAVESAM=${SAVESAM}
 export SAMOUT=${SAMOUT}
 export FORCESORT=${FORCESORT}
+export FORCEFILTER=${FORCEFILTER}
 export VERBOSE=${VERBOSE}
 export SLURM=${SLURM}
 export TIME=${TIME}
