@@ -148,11 +148,10 @@ select_map_fxn
 ## INTERPRET CMDLINE ARGS TO CATCH PROBLEMS AND GIVE WARNINGS
 #########################################################################################################
 
-for REQUIRED in seqtk samtools ; do TOOL=$( which ${REQUIRED} ) ; if [ -z ${TOOL} ]; then echo "${REQUIRED} not found. Put it in your PATH and try again." ; exit ; fi ; done
+for REQUIRED in seqtk samtools ; do TOOL=$( which ${REQUIRED} ) ; echo -e "${REQUIRED}\t${TOOL}" ; if [ -z ${TOOL} ]; then echo "${REQUIRED} not found. Put it in your PATH and try again." ; exit ; fi ; done
 
 
-for PROVIDED in samPctIdentity.py stats.py ; do TOOL=$( which ${PROVIDED} ) ; 
-if [ -z ${TOOL} ]; then echo "${PROVIDED} was not found, although it comes packaged with MiniQV in the utils directory. Something is wrong internally. As a user, you should never see this message. My deepest condolences. Have at me with a GitHub issue." ; exit ; fi ; done
+for PROVIDED in samPctIdentity.py stats.py ; do TOOL=$( which ${PROVIDED} ) ; echo -e "${PROVIDED}\t${TOOL}" ; if [ -z ${TOOL} ]; then echo "${PROVIDED} was not found, although it comes packaged with MiniQV in the utils directory. Something is wrong internally. As a user, you should never see this message. My deepest condolences. Have at me with a GitHub issue." ; exit ; fi ; done
 
 for REQOPT in INPUT READS ; do if [ -z ${REQOPT} ]; then echo "${!REQOPT} was not provided. Required options are: -a or -b, and -r. Try again." ; exit ; fi ; done
 
