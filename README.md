@@ -6,7 +6,8 @@ Assembly QV metrics based on fast alignments of a representative sample of reads
 
 
 # Detailed Usage
-	MiniQV 0.0.1
+
+	MiniQV 0.0.2
 
         This produces a variety of alignment-based statistics that can be used to compare a set of assemblies.
         - Simply use the same read set and MiniQV parameters on each assembly.
@@ -18,7 +19,7 @@ Assembly QV metrics based on fast alignments of a representative sample of reads
                         - QV values will appear quite low even when correcting for the error-rate.
                 - Designed with single-end reads (or single long reads) in mind.
                 - Paired reads will work fine, but they return joint percent ID (and error rate) estimates based on both reads.
-                        - The number of "split" alignments will be 2 for pairs that both map and don't split.
+                        - The number of split alignments will be 2 for pairs that both map and don't split.
 	- Nevertheless, the mis-assembly aspects of this pipeline were designed with long reads in mind (although short reads can work too).
 		- Prevalence of mis-assemblies assessed by comparing the prevalence of split alignments among assemblies.
 		- These comparisons are not totally released with version 0.0.1 though.
@@ -68,6 +69,7 @@ Assembly QV metrics based on fast alignments of a representative sample of reads
 	Options:
 	
 	-a	ASM	: Either -a or -b required. Provide /path/to/assembly.fasta OR /path/to/assemblies.fofn with -f to process multiple assemblies. See notes in -f.
+			  See notes on file paths below.
 
 	-b	BAM|SAM	: Either -a or -b required. 
 			  Provide /path/to/readsPreAlignedToAssembly.bam[sam] 
@@ -102,7 +104,7 @@ Assembly QV metrics based on fast alignments of a representative sample of reads
 
 	-r	READS	: Required with -a. /Path/to/reads.fastq(.gz). 
 			  Paired short reads can be analyzed separately, or concatenated into a single file.
-			  In the latter case, the optimal number of "split reads" reported for a read name is 2 instead of 1. Here, 1 would indicate an orphaned read that had no splits.
+			  In the latter case, the optimal number of split reads reported for a read name is 2 instead of 1. Here, 1 would indicate an orphaned read that had no splits.
 
 	-d	DATATYPE: Possible values are 'sr', 'pacbio', and 'nanopore'. Default = sr (short read, presumably high accuracy).
 
@@ -125,7 +127,7 @@ Assembly QV metrics based on fast alignments of a representative sample of reads
 			  In aligned reads, the error rate is a sum of the errors from the assembly, the reads, and the natural variation (heterozygosity).
 			  MiniQV attempts to show QVs with the total error rate as well as error rates after subtracting out error due to reads and/or natural variation.
 			  It will show some results over a sweep of possible read error and heterozygosity rates in one output file.
-			  However, for the "cigar-QV" table, it will only use the heterozygosity rate provided here.
+			  However, for the cigar-QV table, it will only use the heterozygosity rate provided here.
 			  Default = 0.001.
 			  To get an expected heterozygosity rate, one method is to use GenomeScope2.
 
@@ -162,7 +164,12 @@ Assembly QV metrics based on fast alignments of a representative sample of reads
 			  - using a mapper that doesn't output alignments grouped by read name, or 
 			  - working with BAMs that are position sorted.
 
+	-o	OUTDIR	: Name of main top-level output directory. 
+			  Default = miniqv_output.
+
 	-v	VERBOSE	: Default = false.
+
+
 
 
 
@@ -233,6 +240,31 @@ Assembly QV metrics based on fast alignments of a representative sample of reads
 	- This script was developed to evaluate the quality of various genome assemblies for the fungus gnat, Bradysia coprophila.
 	- It is free to use, further develop, criticize, etc.
 	- Feel free to cite this github repo if you find it helpful in your own research.
+
+
+
+	Known issues:
+	- File paths
+			  miniQV should be installed inside a directory that has no spaces inside its absolute path.
+			  In addition to miniQV, input file paths (-a, -b, -r) cannot have spaces. 
+			  E.g. invalid paths = 
+					/Path to my/file.fasta
+					/Path\ to\ my/file.fasta
+			       valid paths =
+					/Path/to/my/file.fasta 
+			  Spaces in paths are rare. They're more likely to be found on MacOS, and particular in Google Drive dirs.
+			  Creating symlinks (ln -s) to the dir inside a path with no spaces can sometimes get around this.
+
+			  The absolute path to miniQV should be used to execute miniQV (this is default if it is in your PATH). 
+				Relative paths to miniQV can cause issues.
+			  Files provided to -a, -b, and -r can be absolute paths or relative paths from the directory miniQV is executed inside.
+			  	Still absolute paths are better than relative paths.
+			  File paths inside the FOFN files should all be absolute paths (no relative paths).
+
+	- Not enough memory (especially on SLURM).
+		- If there is not enough memory available, the mapping stage of the pipeline can get killed.
+		- This will lead to weird errors and outputs.
+		- See ./known_issues/ for more info.
 
 
 
