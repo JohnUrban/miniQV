@@ -1,4 +1,4 @@
-export miniQV_pipeline_version=0.0.1
+export miniQV_pipeline_version=0.0.2
 #export mm2_sr_pipeline=0.0.1
 #export mm2_lr_pipeline=0.0.1
 #export bt2_pipeline=0.0.1

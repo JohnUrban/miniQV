@@ -1,0 +1,6 @@
+# Version 0.0.2, 2022-10-14
+- Handles relative paths to -a, -b, -r input files.
+- Can provide non-default output directory name (default = miniqv_output).
+
+# Version 0.0.1, 2022-10-13
+- First commit, unoffical release

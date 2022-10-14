@@ -71,6 +71,7 @@ function help {
 	Options:
 	
 	-a	ASM	: Either -a or -b required. Provide /path/to/assembly.fasta OR /path/to/assemblies.fofn with -f to process multiple assemblies. See notes in -f.
+			  See notes on file paths below.
 
 	-b	BAM|SAM	: Either -a or -b required. 
 			  Provide /path/to/readsPreAlignedToAssembly.bam[sam] 
@@ -165,7 +166,12 @@ function help {
 			  - using a mapper that doesn't output alignments grouped by read name, or 
 			  - working with BAMs that are position sorted.
 
+	-o	OUTDIR	: Name of main top-level output directory. 
+			  Default = miniqv_output.
+
 	-v	VERBOSE	: Default = false.
+
+
 
 
 
@@ -239,6 +245,29 @@ function help {
 
 
 
+	Known issues:
+	- File paths
+			  miniQV should be installed inside a directory that has no spaces inside its absolute path.
+			  In addition to miniQV, input file paths (-a, -b, -r) cannot have spaces. 
+			  E.g. invalid paths = 
+					/Path to my/file.fasta
+					/Path\ to\ my/file.fasta
+			       valid paths =
+					/Path/to/my/file.fasta 
+			  Spaces in paths are rare. They're more likely to be found on MacOS, and particular in Google Drive dirs.
+			  Creating symlinks (ln -s) to the dir inside a path with no spaces can sometimes get around this.
+
+			  The absolute path to miniQV should be used to execute miniQV (this is default if it is in your PATH). 
+				Relative paths to miniQV can cause issues.
+			  Files provided to -a, -b, and -r can be absolute paths or relative paths from the directory miniQV is executed inside.
+			  	Still absolute paths are better than relative paths.
+			  File paths inside the FOFN files should all be absolute paths (no relative paths).
+
+	- Not enough memory (especially on SLURM).
+		- If there is not enough memory available, the mapping stage of the pipeline can get killed.
+		- This will lead to weird errors and outputs.
+		- See ${SCRIPTDIR}/known_issues/ for more info.
+
 "		
 }
 
@@ -268,6 +297,33 @@ function version_check {
   fi
 }
 
+
+
+function update_input {
+  export INPUT_GIVEN=${INPUT}
+  if [ ${INPUT: 0:1} != "/" ]; then
+    ## Relative path was given
+    ## readlink -f has different behavior on some Mac OS than on Linux; in that case greadlink -f is needed.
+    ## realpath -s can be used as well, but may give another dependency.
+    ## If this was a relative path, then it is relative from EXEDIR, so appending that should be fine.
+    ## Or appending "../" would work too.
+    ## Know that spaces are allowed in names on MacOS, and Google Drive paths use spaces by default (~/Google Drives/My Drive/).
+    ## This creates some trickery. A backslash can be used (My\ Drive), but the spaces can still be interpreted as separating arguments to scripts and functions.
+    ## The user, or this program needs to put quotes around the path for it to be interpreted as a single 'word' or arg. Quotes may be needed every time it is used.
+    export INPUT=../../${INPUT}
+    #export INPUT=${EXEDIR}/${INPUT}
+    #export INPUT=$( readlink -f ${INPUT} )
+    #export INPUT=$( realpath -s ${INPUT} )
+  fi
+}
+
+function update_reads {
+  export READS_GIVEN=${R1}
+  if [ ${R1: 0:1} != "/" ]; then
+    export R1=../../${R1}
+    export READS=${R1}
+  fi
+}
 
 function if_verbose {
   if ${VERBOSE} ; then echo -e "${@}" 1>&2 ; fi
@@ -1026,19 +1082,20 @@ miniQV_pipeline ${PRE}_${MAPFXN} ${MAPFXN} 1> miniQV_${PRE}_${MAPFXN}.out.txt 2>
 
 
 
-function write_and_launch_single {
+function prep_single {
   BASE=$( basename ${INPUT} )
+  echo HERE I AM: BASE : ${BASE} 1>&2
   PRE=$( echo ${BASE} | awk '{sub(/.fasta|.fa|.bam|.sam|.fna|.fq|.fastq/,""); print}' )_miniQV
+  echo HERE I AM: PRE : ${PRE} 1>&2
   ###$( basename $( basename $( basename $( basename ${INPUT} .fasta ) .fa ) .bam ) .sam )_miniQV
 
   SEED=$RANDOM
-  export FOFN=miniQV-autogen-${SEED}.fofn
-  echo -e "${PRE}\t${INPUT}" > ${FOFN}
-  write_and_launch_loop
+  export FOFN=${MAIN}/miniQV-autogen-${SEED}.fofn
+  echo -e "${PRE}\t${INPUT}" > ${FOFN}  
 }
 
 function write_and_launch_loop {
-  OUTDIR=miniqv_output
+  OUTDIR=${WDNAME}	#miniqv_output
   mkdir -p ${OUTDIR} && cd ${OUTDIR}
   export MAIN=${PWD}
   echo MAIN WD: ${MAIN}
@@ -1046,10 +1103,7 @@ function write_and_launch_loop {
   SCRIPT=auto-written-miniQV_${PRE}${MAPFXN}.sh
 
   if ! ${FOFNMODE} ; then
-    PRE=$( basename $( basename ${INPUT} .fasta ) .bam )_miniQV
-    SEED=$RANDOM
-    export FOFN=${MAIN}/miniQV-autogen-${SEED}.fofn
-    echo -e "${PRE}\t${INPUT}" > ${FOFN}
+    prep_single
   fi
 
   ## Expects either 2-col or 3-col fofn file:
