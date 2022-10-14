@@ -319,9 +319,11 @@ function update_input {
 
 function update_reads {
   export READS_GIVEN=${R1}
-  if [ ${R1: 0:1} != "/" ]; then
-    export R1=../../${R1}
-    export READS=${R1}
+  if [ ! -z ${R1} ]; then
+    if [ ${R1: 0:1} != "/" ]; then
+      export R1=../../${R1}
+      export READS=${R1}
+    fi
   fi
 }
 
@@ -1084,9 +1086,9 @@ miniQV_pipeline ${PRE}_${MAPFXN} ${MAPFXN} 1> miniQV_${PRE}_${MAPFXN}.out.txt 2>
 
 function prep_single {
   BASE=$( basename ${INPUT} )
-  echo HERE I AM: BASE : ${BASE} 1>&2
+
   PRE=$( echo ${BASE} | awk '{sub(/\.fasta|\.fa|\.bam|\.sam|\.fna|\.fq|\.fastq/,""); print}' )_miniQV
-  echo HERE I AM: PRE : ${PRE} 1>&2
+
   ###$( basename $( basename $( basename $( basename ${INPUT} .fasta ) .fa ) .bam ) .sam )_miniQV
 
   SEED=$RANDOM
