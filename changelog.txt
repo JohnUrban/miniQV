@@ -1,3 +1,7 @@
+# Version 0.0.4, 2022-10-14
+	- Added -R -- to stop after estimating read error.
+	- Added -E -- to bypass read error estimation step, and to provide pre-computed file.
+
 # Version 0.0.3, 2022-10-14
 	- Added -U to force-remove unmapped reads from analysis.
 		- This is mainly for trying to analyze paired-end BAMs where one mate may be mapped and the other is not.

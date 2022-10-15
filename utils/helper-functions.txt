@@ -354,17 +354,27 @@ function update_input {
     ## Know that spaces are allowed in names on MacOS, and Google Drive paths use spaces by default (~/Google Drives/My Drive/).
     ## This creates some trickery. A backslash can be used (My\ Drive), but the spaces can still be interpreted as separating arguments to scripts and functions.
     ## The user, or this program needs to put quotes around the path for it to be interpreted as a single 'word' or arg. Quotes may be needed every time it is used.
-    if ${FOFNMODE}; then export FOFN=../${INPUT} ; fi    ## Do this above changing INPUT
-    export INPUT=../../${INPUT}
-    #export INPUT=${EXEDIR}/${INPUT}
+
+    if ${FOFNMODE}; then 
+      #export FOFN=../${INPUT} ;  ## This method needs to be above changing INPUT 
+      export FOFN=${EXEDIR}/${INPUT}
+    fi    ## Do this above changing INPUT
+
+
+    export INPUT=${EXEDIR}/${INPUT}
+    #export INPUT=../../${INPUT}
     #export INPUT=$( readlink -f ${INPUT} )
     #export INPUT=$( realpath -s ${INPUT} )
+
    else
+     ## INPUT had leading "/" - assume abs path.
      if ${FOFNMODE}; then export FOFN=${INPUT} ; fi
   fi
+
   if ${BYPASS_READ_ERROR_STEP}; then
     if [ ${READERRFILE: 0:1} != "/" ]; then
-      READERRFILE=../../${READERRFILE}
+      ##READERRFILE=../../${READERRFILE}
+      READERRFILE=${EXEDIR}/${READERRFILE}
     fi
   fi
 
